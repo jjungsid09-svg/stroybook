@@ -22,7 +22,7 @@
 }
 *,*::before,*::after{box-sizing:inherit}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
-body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:18px;line-height:1.6;-webkit-tap-highlight-color:transparent}
+body{margin:0;overflow-x:hidden;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:18px;line-height:1.6;-webkit-tap-highlight-color:transparent}
 button,input,textarea{font:inherit;color:inherit}
 button{cursor:pointer;border:0;background:none}
 :focus-visible{outline:3px solid var(--sun);outline-offset:2px}
@@ -69,8 +69,10 @@ button{cursor:pointer;border:0;background:none}
 .q .n{grid-row:span 3;width:40px;height:40px;border-radius:50%;background:var(--paper);display:grid;place-items:center;font-family:var(--display);font-size:20px}
 .q.key .n{background:var(--sun)}
 .q label{font-family:var(--display);font-size:20px}
+.guide{margin:6px 0 0;font-size:15px;color:var(--ink-soft)}
+.guide.warn{color:var(--coral);font-weight:bold}
 .q .hint{font-size:14px;color:var(--ink-soft)}
-textarea,input[type=text],input[type=password]{width:100%;border:2px solid var(--line);border-radius:12px;padding:10px 12px;background:#FBFDFF;resize:vertical}
+textarea,input[type=text],input[type=password]{width:100%;max-width:100%;overflow-wrap:anywhere;border:2px solid var(--line);border-radius:12px;padding:10px 12px;background:#FBFDFF;resize:vertical}
 textarea:focus,input:focus{border-color:var(--ink);outline:none}
 .card{margin-top:22px;padding:18px;border-radius:14px;background:#FFF6D8}
 .card h3{font-family:var(--display);font-weight:400;font-size:21px;margin:0 0 4px}
@@ -83,7 +85,8 @@ textarea:focus,input:focus{border-color:var(--ink);outline:none}
 .chip.done::after{content:"";position:absolute;right:5px;top:5px;width:9px;height:9px;border-radius:50%;background:var(--leaf)}
 .chip.add{border-style:dashed;border-color:var(--ink);color:var(--ink);font-size:26px;line-height:1}
 .mini .ph{cursor:pointer}
-.edit{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.edit{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px}
+.edit>div{min-width:0}
 @media(max-width:820px){.edit{grid-template-columns:1fr}}
 .field{margin-bottom:14px}
 .field>span{display:block;font-family:var(--display);font-size:18px;margin-bottom:4px}
@@ -96,13 +99,14 @@ textarea:focus,input:focus{border-color:var(--ink);outline:none}
 
 /* ---------- 그림책 쪽 (보기/미리보기 공통) ---------- */
 .pg{position:absolute;inset:0;background:#fff;container-type:size;display:grid;padding:5cqw;gap:4cqw;overflow:hidden}
-.pg .t{font-size:3.4cqw;line-height:1.75;overflow:auto;white-space:pre-wrap;word-break:keep-all}
+.pg .t{font-size:3.4cqw;line-height:1.75;overflow:hidden;min-height:0;white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere}
 .pg .im{min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
 .pg .im img{max-width:100%;max-height:100%;object-fit:contain;border-radius:1.2cqw}
 .pg .ph{width:100%;height:100%;border:.4cqw dashed var(--line);border-radius:1.2cqw;display:grid;place-items:center;color:var(--ink-soft);font-size:2.6cqw}
 .pg .no{position:absolute;bottom:2cqw;right:3cqw;font-size:2.2cqw;color:var(--ink-soft)}
-.pg.side{grid-template-columns:1.15fr 1fr;align-items:center}
-.pg.top{grid-template-rows:1.5fr 1fr}
+.pg.side{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:center}
+.pg.top{grid-template-rows:minmax(0,1.5fr) minmax(0,1fr)}
+.pg>*{min-width:0}
 .pg.top .t{text-align:center}
 .pg.full{padding:0;display:block}
 .pg.full .im{position:absolute;inset:0}
@@ -189,6 +193,7 @@ const CONFIG = {
 };
 /* ============================================================ */
 
+const LIMITS = { side:[100,5], top:[80,4], full:[80,4], text:[150,7] };  // [권장 글자 수, 약 몇 문장]
 const LAYOUTS = [["side","그림 왼쪽"],["top","그림 위"],["full","그림 가득"],["text","글만"]];
 const COLORS = ["#3E6FB0","#2F9E77","#E1573F","#7A5BC7","#D98A1E","#1F8A9E","#C24C7A"];
 
@@ -298,6 +303,28 @@ async function shrink(src, max, q=0.82){
   x.drawImage(img, 0, 0, c.width, c.height);
   return c.toDataURL("image/jpeg", q);
 }
+
+/* ---------- 글이 넘치면 글씨 크기를 줄여 쪽 안에 맞추기 ---------- */
+function fitText(root){
+  if (!root) return;
+  root.querySelectorAll(".pg .t").forEach(t => {
+    t.style.fontSize = "";
+    let size = parseFloat(getComputedStyle(t).fontSize);
+    const min = size * 0.45;
+    while (t.scrollHeight > t.clientHeight + 1 && size > min){
+      size *= 0.93; t.style.fontSize = size + "px";
+    }
+  });
+}
+function guideHTML(p){
+  const [max, sent] = LIMITS[p.layout] || LIMITS.side;
+  const n = p.text.replace(/\n/g, "").length;
+  return n > max
+    ? `<p class="guide warn" id="guide">글이 많아서 글씨가 작아져요. 다음 쪽으로 나눠 써 보세요. (${n} / ${max}자)</p>`
+    : `<p class="guide" id="guide">이 모양은 ${sent}문장(${max}자) 정도까지 들어가요. 지금 ${n}자</p>`;
+}
+window.addEventListener("resize", () => { fitText($("#prev")); fitText($("#stage")); });
+if (document.fonts) document.fonts.ready.then(() => { fitText($("#prev")); fitText($("#stage")); });
 
 /* ---------- 쪽 그리기 (보기·미리보기 공통) ---------- */
 function pageHTML(p, img, num, preview){
@@ -458,6 +485,7 @@ function renderPages(){
       <div>
         <label class="field"><span>${S.page+1}쪽 글</span>
           <textarea id="pgText" rows="7" placeholder="이 쪽에 들어갈 이야기를 써요.">${esc(p.text)}</textarea></label>
+        <div id="guideBox" style="margin:-8px 0 14px">${guideHTML(p)}</div>
         <div class="field"><span>쪽 모양</span>
           <div class="seg">${LAYOUTS.map(([k,l]) => `<button data-lay="${k}" aria-pressed="${p.layout===k}">${l}</button>`).join("")}</div></div>
 
@@ -475,10 +503,11 @@ function renderPages(){
         </div>
       </div>
     </div>`;
-  const prev = () => $("#prev").innerHTML = pageHTML(p, S.imgs[p.pid], S.page+1, true);
+  const prev = () => { $("#prev").innerHTML = pageHTML(p, S.imgs[p.pid], S.page+1, true); fitText($("#prev")); };
+  fitText($("#prev"));
   document.querySelectorAll(".chip[data-p]").forEach(c => c.onclick = () => { S.page = +c.dataset.p; renderPages(); });
   $("#addPg").onclick = () => { b.pages.push({ pid:uid(), text:"", layout:"side", hasImg:false }); S.page = b.pages.length-1; queueSave(); renderPages(); };
-  $("#pgText").oninput = e => { p.text = e.target.value; queueSave(); prev(); };
+  $("#pgText").oninput = e => { p.text = e.target.value; queueSave(); prev(); $("#guideBox").innerHTML = guideHTML(p); };
   document.querySelectorAll("[data-lay]").forEach(x => x.onclick = () => { p.layout = x.dataset.lay; queueSave(); renderPages(); });
   if ($("#pickImg")){
     const pick = () => { $("#pgFile").value = ""; $("#pgFile").click(); };
@@ -592,7 +621,7 @@ function slideHTML(i){
   const p = b.pages[i-1]; return pageHTML(p, S.imgs[p.pid], i, false);
 }
 function showSlide(i){
-  S.idx = i; $("#under").innerHTML = slideHTML(i);
+  S.idx = i; $("#under").innerHTML = slideHTML(i); fitText($("#under"));
   const n = S.book.pages.length;
   $("#cnt").textContent = i===0 ? "표지" : i===n+1 ? "끝" : `${i} / ${n}`;
   $("#pv").disabled = i===0; $("#nx").disabled = i===slideCount()-1;
@@ -605,8 +634,8 @@ function turn(d){
   const leaf = $("#leaf"), under = $("#under");
   leaf.style.display = "block";
   let frames;
-  if (d > 0){ leaf.innerHTML = slideHTML(S.idx); under.innerHTML = slideHTML(to); frames = [{transform:"rotateY(0deg)"},{transform:"rotateY(-180deg)"}]; }
-  else { leaf.innerHTML = slideHTML(to); frames = [{transform:"rotateY(-180deg)"},{transform:"rotateY(0deg)"}]; }
+  if (d > 0){ leaf.innerHTML = slideHTML(S.idx); under.innerHTML = slideHTML(to); fitText(leaf); fitText(under); frames = [{transform:"rotateY(0deg)"},{transform:"rotateY(-180deg)"}]; }
+  else { leaf.innerHTML = slideHTML(to); fitText(leaf); frames = [{transform:"rotateY(-180deg)"},{transform:"rotateY(0deg)"}]; }
   leaf.animate(frames, { duration:650, easing:"cubic-bezier(.45,.05,.3,1)" }).onfinish = () => {
     leaf.style.display = "none"; showSlide(to); S.busy = false;
   };

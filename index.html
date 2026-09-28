@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>우리 반 그림책 도서관</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   설정은 아래 <script> 맨 위 CONFIG에서 바꿔요.
+   ============================================================ */
+:root{
+  --paper:#EAF2FA; --ink:#1C2A48; --ink-soft:#56627D;
+  --sun:#FFC83D; --leaf:#2F9E77; --coral:#E1573F;
+  --wood:#B97E45; --wood-dark:#8A5A2E; --white:#fff; --line:#CBD7E6;
+  --display:"Jua","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --body:"Gowun Dodum","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:18px;line-height:1.6;-webkit-tap-highlight-color:transparent}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
+.btn{min-height:46px;padding:0 20px;border-radius:999px;background:var(--ink);color:#fff;font-family:var(--display);font-size:19px;display:inline-flex;align-items:center;gap:8px}
+.btn.sun{background:var(--sun);color:var(--ink)}
+.btn.ghost{background:transparent;color:var(--ink);border:2px solid var(--ink)}
+.btn.danger{background:var(--coral)}
+.btn.small{min-height:38px;font-size:16px;padding:0 14px}
+.wrap{max-width:1100px;margin:0 auto;padding:20px}
+
+/* ---------- 서가 ---------- */
+.hero{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;padding:28px 0 20px}
+.hero h1{font-family:var(--display);font-weight:400;font-size:clamp(34px,6vw,56px);line-height:1.1;margin:0}
+.hero p{margin:6px 0 0;color:var(--ink-soft)}
+.shelf{--row:236px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));grid-auto-rows:var(--row);
+  padding:0 16px;border-radius:10px;background:
+  linear-gradient(to bottom,transparent calc(var(--row) - 20px),var(--wood) calc(var(--row) - 20px),var(--wood) calc(var(--row) - 6px),var(--wood-dark) calc(var(--row) - 6px));
+  background-size:100% var(--row);background-color:#DDE8F4}
+.bk{align-self:end;justify-self:center;margin-bottom:20px;width:128px;text-align:left}
+.cover{position:relative;width:128px;height:172px;border-radius:3px 8px 8px 3px;overflow:hidden;background:var(--c,#3E6FB0);
+  box-shadow:inset 7px 0 0 rgba(0,0,0,.18),3px 4px 0 rgba(28,42,72,.25);transition:transform .15s}
+.bk:active .cover,.bk:hover .cover{transform:translateY(-6px)}
+.cover img{width:100%;height:100%;object-fit:cover;display:block}
+.cover .ct{position:absolute;left:0;right:0;bottom:0;padding:8px 8px 8px 14px;background:rgba(255,255,255,.93);font-family:var(--display);font-size:15px;line-height:1.25;color:var(--ink)}
+.cover .ct small{display:block;font-family:var(--body);font-size:12px;color:var(--ink-soft)}
+.empty{padding:40px 0;text-align:center;color:var(--ink-soft)}
+.foot{display:flex;justify-content:space-between;align-items:center;margin-top:28px;color:var(--ink-soft);font-size:14px}
+.demo{background:var(--sun);padding:10px 14px;border-radius:10px;font-size:15px;margin-top:8px}
+
+/* ---------- 상단바 ---------- */
+.bar{position:sticky;top:0;z-index:10;background:var(--paper);border-bottom:2px solid var(--line);padding-top:env(safe-area-inset-top,0px)}
+.bar .in{max-width:1100px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.bar h2{font-family:var(--display);font-weight:400;font-size:24px;margin:0;flex:1;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status{font-size:14px;color:var(--ink-soft)}
+.status.err{color:var(--coral);font-weight:bold}
+.tabs{display:flex;gap:6px;max-width:1100px;margin:0 auto;padding:0 20px}
+.tab{padding:10px 18px;border-radius:12px 12px 0 0;font-family:var(--display);font-size:18px;color:var(--ink-soft)}
+.tab[aria-selected=true]{background:var(--white);color:var(--ink)}
+.panel{background:var(--white);border-radius:0 14px 14px 14px;padding:22px;max-width:1060px;margin:0 20px}
+@media(min-width:1100px){.panel{margin:0 auto}}
+
+/* ---------- 뼈대 ---------- */
+.q{display:grid;grid-template-columns:44px 1fr;gap:4px 12px;padding:14px 0;border-bottom:1px dashed var(--line)}
+.q .n{grid-row:span 3;width:40px;height:40px;border-radius:50%;background:var(--paper);display:grid;place-items:center;font-family:var(--display);font-size:20px}
+.q.key .n{background:var(--sun)}
+.q label{font-family:var(--display);font-size:20px}
+.q .hint{font-size:14px;color:var(--ink-soft)}
+textarea,input[type=text],input[type=password]{width:100%;border:2px solid var(--line);border-radius:12px;padding:10px 12px;background:#FBFDFF;resize:vertical}
+textarea:focus,input:focus{border-color:var(--ink);outline:none}
+.card{margin-top:22px;padding:18px;border-radius:14px;background:#FFF6D8}
+.card h3{font-family:var(--display);font-weight:400;font-size:21px;margin:0 0 4px}
+.card p{margin:0 0 10px;font-size:15px;color:var(--ink-soft)}
+
+/* ---------- 쪽 쓰기 ---------- */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.chip{flex:0 0 auto;width:52px;height:52px;border-radius:12px;border:2px solid var(--line);font-family:var(--display);font-size:19px;position:relative;background:#fff}
+.chip.on{border-color:var(--ink);background:var(--ink);color:#fff}
+.chip.done::after{content:"";position:absolute;right:5px;top:5px;width:9px;height:9px;border-radius:50%;background:var(--leaf)}
+.chip.add{border-style:dashed;border-color:var(--ink);color:var(--ink);font-size:26px;line-height:1}
+.mini .ph{cursor:pointer}
+.edit{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+@media(max-width:820px){.edit{grid-template-columns:1fr}}
+.field{margin-bottom:14px}
+.field>span{display:block;font-family:var(--display);font-size:18px;margin-bottom:4px}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{padding:8px 14px;border-radius:999px;border:2px solid var(--line);font-size:15px}
+.seg button[aria-pressed=true]{border-color:var(--ink);background:var(--ink);color:#fff}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.mini{position:relative;width:100%;aspect-ratio:4/3;border-radius:6px;overflow:hidden;box-shadow:0 0 0 2px var(--line)}
+.pick{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none}
+
+/* ---------- 그림책 쪽 (보기/미리보기 공통) ---------- */
+.pg{position:absolute;inset:0;background:#fff;container-type:size;display:grid;padding:5cqw;gap:4cqw;overflow:hidden}
+.pg .t{font-size:3.4cqw;line-height:1.75;overflow:auto;white-space:pre-wrap;word-break:keep-all}
+.pg .im{min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
+.pg .im img{max-width:100%;max-height:100%;object-fit:contain;border-radius:1.2cqw}
+.pg .ph{width:100%;height:100%;border:.4cqw dashed var(--line);border-radius:1.2cqw;display:grid;place-items:center;color:var(--ink-soft);font-size:2.6cqw}
+.pg .no{position:absolute;bottom:2cqw;right:3cqw;font-size:2.2cqw;color:var(--ink-soft)}
+.pg.side{grid-template-columns:1.15fr 1fr;align-items:center}
+.pg.top{grid-template-rows:1.5fr 1fr}
+.pg.top .t{text-align:center}
+.pg.full{padding:0;display:block}
+.pg.full .im{position:absolute;inset:0}
+.pg.full .im img{width:100%;height:100%;max-width:none;object-fit:cover;border-radius:0}
+.pg.full .t{position:absolute;left:4cqw;right:4cqw;bottom:4cqw;max-height:40%;background:rgba(255,255,255,.9);border-radius:1.6cqw;padding:2.4cqw 3cqw}
+.pg.text{align-content:center;padding:9cqw 12cqw}
+.pg.text .t{font-size:4cqw;text-align:center}
+.pg.cv{background:var(--c,#3E6FB0);padding:0;display:block}
+.pg.cv .im{position:absolute;inset:6cqw 6cqw 26cqw}
+.pg.cv .ttl{position:absolute;left:6cqw;right:6cqw;bottom:6cqw;background:#fff;border-radius:1.6cqw;padding:2.6cqw 3.6cqw}
+.pg.cv .ttl b{display:block;font-family:var(--display);font-weight:400;font-size:5.4cqw;line-height:1.2}
+.pg.cv .ttl span{font-size:2.8cqw;color:var(--ink-soft)}
+.pg.end{align-content:center;justify-items:center;text-align:center}
+.pg.end b{font-family:var(--display);font-weight:400;font-size:9cqw}
+.pg.end span{font-size:3cqw;color:var(--ink-soft)}
+
+/* ---------- 보기(넘기는 책) ---------- */
+.reader{padding:18px 20px 30px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.stage{position:relative;width:min(100%,calc((100dvh - 190px)*4/3));aspect-ratio:4/3;perspective:2200px}
+.sheet{position:absolute;inset:0;border-radius:4px 12px 12px 4px;overflow:hidden;background:#fff;box-shadow:inset 10px 0 12px -8px rgba(0,0,0,.25),0 10px 24px rgba(28,42,72,.22)}
+.leaf{z-index:2;transform-origin:left center;backface-visibility:hidden;-webkit-backface-visibility:hidden;display:none}
+.nav{display:flex;align-items:center;gap:18px}
+.nav .cnt{font-family:var(--display);font-size:20px;min-width:80px;text-align:center}
+.nav button.arrow{width:58px;height:58px;border-radius:50%;background:var(--ink);color:#fff;font-size:26px}
+.nav button.arrow:disabled{opacity:.25}
+
+/* ---------- 창 ---------- */
+dialog{border:0;border-radius:18px;padding:26px;max-width:min(420px,92vw);width:100%;color:var(--ink)}
+dialog::backdrop{background:rgba(28,42,72,.45)}
+dialog h3{font-family:var(--display);font-weight:400;font-size:26px;margin:0 0 14px}
+dialog .err{color:var(--coral);font-size:15px;min-height:22px;margin:6px 0}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:999px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50}
+.toast.on{opacity:1}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<dialog id="login">
+  <h3>내 책 열기</h3>
+  <div class="field"><span>이름</span><input type="text" id="lgName" autocomplete="off" placeholder="예: 김하늘"></div>
+  <div class="field"><span>비밀번호 (숫자 4자리)</span><input type="password" id="lgPin" inputmode="numeric" maxlength="4" autocomplete="off"></div>
+  <p class="hint" style="font-size:14px;color:var(--ink-soft);margin:0">처음이면 지금 정한 비밀번호로 새 책이 만들어져요.</p>
+  <div class="err" id="lgErr"></div>
+  <div class="row" style="justify-content:flex-end">
+    <button class="btn ghost small" id="lgCancel">닫기</button>
+    <button class="btn sun" id="lgGo">책 열기</button>
+  </div>
+</dialog>
+<dialog id="ask">
+  <h3 id="askT"></h3>
+  <p id="askP" style="margin:0 0 12px;white-space:pre-wrap"></p>
+  <input type="text" id="askIn" style="display:none;margin-bottom:12px">
+  <textarea id="askTa" rows="5" readonly style="display:none;margin-bottom:12px"></textarea>
+  <div class="row" style="justify-content:flex-end">
+    <button class="btn ghost small" id="askNo">취소</button>
+    <button class="btn sun" id="askOk">확인</button>
+  </div>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   ▼ 선생님이 바꾸는 곳
+   firebaseConfig : Firebase 콘솔 → 프로젝트 설정 → 내 앱(웹)에 있는
+                    firebaseConfig 내용을 그대로 붙여 넣으세요.
+                    비워 두면 '연습 모드'(이 기기에서만 저장)예요.
+   TEACHER_PIN    : 선생님 모드 비밀번호 (꼭 바꾸세요)
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyCzF8Mmj9EqcQnuUvzE6mD4z42zbh0HwvA",
+  authDomain: "storybook-b37a3.firebaseapp.com",
+  projectId: "storybook-b37a3",
+  storageBucket: "storybook-b37a3.firebasestorage.app",
+  messagingSenderId: "987708299576",
+  appId: "1:987708299576:web:c7b234c7d0a6cf23c709cd"
+};
+const CONFIG = {
+  TEACHER_PIN: "0000",
+  DEFAULT_PAGES: 1
+};
+/* ============================================================ */
+
+const LAYOUTS = [["side","그림 왼쪽"],["top","그림 위"],["full","그림 가득"],["text","글만"]];
+const COLORS = ["#3E6FB0","#2F9E77","#E1573F","#7A5BC7","#D98A1E","#1F8A9E","#C24C7A"];
+
+let DB = null;
+if (firebaseConfig.apiKey && firebaseConfig.projectId && window.firebase){
+  try { firebase.initializeApp(firebaseConfig); DB = firebase.firestore(); } catch(e){ console.error(e); }
+}
+const DEMO = !DB;
+const S = { view:"shelf", shelf:{}, id:null, book:null, imgs:{}, tab:"pages", page:0, idx:0, teacher:false, busy:false };
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const colorOf = id => COLORS[[...String(id)].reduce((a,c)=>a+c.charCodeAt(0),0) % COLORS.length];
+
+/* ---------- 저장소 (Firestore 또는 연습 모드) ----------
+   storybook_shelf/{책}   : 책장에 보이는 정보(제목, 지은이, 작은 표지)
+   storybook_books/{책}   : 책 내용(글, 쪽 모양, 비밀번호)
+   storybook_imgs/{책__쪽} : 그림 한 장씩 따로 저장
+*/
+const COL = { shelf:"storybook_shelf", books:"storybook_books", imgs:"storybook_imgs" };
+async function api(method, path, body){
+  if (DEMO) return demoApi(method, path, body);
+  const [kind, id, key] = path.split("/");
+  if (kind === "imgs"){
+    const col = DB.collection(COL.imgs);
+    if (method === "GET"){
+      const snap = await col.where("book","==",id).get(); const out = {};
+      snap.forEach(d => out[d.data().key] = d.data().data); return out;
+    }
+    if (method === "PUT") return col.doc(`${id}__${key}`).set({ book:id, key, data:body });
+    if (method === "DELETE"){
+      if (key) return col.doc(`${id}__${key}`).delete();
+      const snap = await col.where("book","==",id).get();
+      return Promise.all(snap.docs.map(d => d.ref.delete()));
+    }
+  }
+  const col = DB.collection(COL[kind]);
+  if (!id && method === "GET"){ const snap = await col.get(); const out = {}; snap.forEach(d => out[d.id] = d.data()); return out; }
+  const ref = col.doc(id);
+  if (method === "GET"){ const d = await ref.get(); return d.exists ? d.data() : null; }
+  if (method === "PUT") return ref.set(body);
+  if (method === "PATCH") return ref.set(body, { merge:true });
+  if (method === "DELETE") return ref.delete();
+}
+let MEM = null;
+function demoApi(method, path, body){
+  let tree = {};
+  if (MEM) tree = MEM;
+  else { try { tree = JSON.parse(localStorage.getItem("csb-demo") || "{}"); } catch(e){ MEM = tree; } }
+  const parts = path.split("/").filter(Boolean);
+  const last = parts.pop();
+  let node = tree;
+  for (const p of parts){
+    if (method === "GET" && (node[p] == null)) return null;
+    node = node[p] = node[p] || {};
+  }
+  if (method === "GET") return JSON.parse(JSON.stringify(last ? node[last] ?? null : node));
+  if (method === "PUT") node[last] = body;
+  if (method === "PATCH") node[last] = Object.assign(node[last] || {}, body);
+  if (method === "DELETE") delete node[last];
+  if (!MEM){ try { localStorage.setItem("csb-demo", JSON.stringify(tree)); } catch(e){ MEM = tree; } }
+  return body ?? null;
+}
+
+/* ---------- 창 도우미 (prompt/confirm은 막히는 곳이 많아서 쓰지 않아요) ---------- */
+function openDlg(d){ if (d.showModal) { try { d.showModal(); return; } catch(e){} } d.setAttribute("open",""); }
+function closeDlg(d){ if (d.close) d.close(); else d.removeAttribute("open"); }
+function ask({ title, text="", input=null, copy=null, ok="확인", cancel="취소", danger=false }){
+  return new Promise(res => {
+    const d = $("#ask"), inp = $("#askIn"), ta = $("#askTa"), okB = $("#askOk"), noB = $("#askNo");
+    $("#askT").textContent = title; $("#askP").textContent = text;
+    inp.style.display = input ? "block" : "none"; inp.value = "";
+    if (input){ inp.type = input.type || "text"; inp.placeholder = input.placeholder || ""; inp.inputMode = input.mode || "text"; }
+    ta.style.display = copy ? "block" : "none"; ta.value = copy || "";
+    okB.textContent = ok; okB.className = danger ? "btn danger" : "btn sun";
+    noB.textContent = cancel; noB.style.display = cancel ? "" : "none";
+    const done = v => { closeDlg(d); okB.onclick = noB.onclick = inp.onkeydown = null; res(v); };
+    okB.onclick = () => done(input ? inp.value : true);
+    noB.onclick = () => done(false);
+    inp.onkeydown = e => { if (e.key === "Enter") okB.click(); };
+    d.oncancel = e => { e.preventDefault(); done(false); };
+    openDlg(d);
+    if (input) setTimeout(() => inp.focus(), 50);
+    if (copy) setTimeout(() => { ta.focus(); ta.select(); }, 50);
+  });
+}
+
+/* ---------- 도우미 ---------- */
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(toast.t); toast.t=setTimeout(()=>t.classList.remove("on"),2200); }
+function normalize(b){
+  const pages = (Array.isArray(b.pages) ? b.pages : Object.values(b.pages || {})).filter(Boolean)
+    .map(p => ({ pid:p.pid || uid(), text:p.text || "", layout:p.layout || "side", hasImg:!!p.hasImg }));
+  return { ...b, title:b.title || "", pages };
+}
+function newBook(name, pin){
+  return { author:name, pin, title:`${name}의 이야기`,
+    pages:Array.from({length:CONFIG.DEFAULT_PAGES}, () => ({ pid:uid(), text:"", layout:"side", hasImg:false })),
+    created:Date.now(), updated:Date.now() };
+}
+function loadImage(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
+async function shrink(src, max, q=0.82){
+  const img = await loadImage(src);
+  const s = Math.min(1, max / Math.max(img.width, img.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.width*s); c.height = Math.round(img.height*s);
+  const x = c.getContext("2d"); x.fillStyle="#fff"; x.fillRect(0,0,c.width,c.height);
+  x.drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", q);
+}
+
+/* ---------- 쪽 그리기 (보기·미리보기 공통) ---------- */
+function pageHTML(p, img, num, preview){
+  let lay = p.layout;
+  if (!img && lay !== "text" && !preview) lay = "text";
+  const im = lay === "text" ? "" :
+    `<div class="im">${img ? `<img src="${img}" alt="">` : `<div class="ph">그림을 넣어 주세요</div>`}</div>`;
+  const tx = `<div class="t">${esc(p.text) || (preview ? '<span style="color:var(--ink-soft)">여기에 글이 들어가요</span>' : "")}</div>`;
+  return `<div class="pg ${lay}">${im}${tx}${num ? `<span class="no">${num}</span>` : ""}</div>`;
+}
+function coverHTML(b, id, img){
+  return `<div class="pg cv" style="--c:${colorOf(id)}">
+    ${img ? `<div class="im"><img src="${img}" alt=""></div>` : ""}
+    <div class="ttl"><b>${esc(b.title || "제목 없는 책")}</b><span>지은이 ${esc(b.author)}</span></div></div>`;
+}
+function coverImg(){
+  if (S.imgs.cover) return S.imgs.cover;
+  const p = S.book.pages.find(p => S.imgs[p.pid]);
+  return p ? S.imgs[p.pid] : null;
+}
+
+/* ============================================================
+   서가
+   ============================================================ */
+async function showShelf(){
+  S.view = "shelf"; S.id = null; S.book = null; S.imgs = {};
+  $("#app").innerHTML = `<div class="wrap"><p class="empty">책장을 불러오고 있어요…</p></div>`;
+  try { S.shelf = await api("GET", "shelf") || {}; }
+  catch(e){ S.shelf = {}; toast("책장을 불러오지 못했어요. 인터넷 연결을 확인하세요."); }
+  const list = Object.entries(S.shelf).sort((a,b) => (b[1].updated||0) - (a[1].updated||0));
+  $("#app").innerHTML = `
+  <div class="wrap">
+    ${DEMO ? `<div class="demo">연습 모드예요. 이 기기에서만 저장돼요. 수업 전에 파일 위쪽 firebaseConfig를 채워 주세요.</div>` : ""}
+    <div class="hero">
+      <div><h1>우리 반 그림책 도서관</h1><p>책을 누르면 읽을 수 있어요.</p></div>
+      <button class="btn sun" id="goWrite">내 책 쓰러 가기</button>
+    </div>
+    ${list.length ? `<div class="shelf">${list.map(([id,b]) => `
+      <button class="bk" data-id="${id}" aria-label="${esc(b.title)} 읽기">
+        <div class="cover" style="--c:${colorOf(id)}">
+          ${b.thumb ? `<img src="${b.thumb}" alt="">` : ""}
+          <div class="ct">${esc(b.title || "제목 없는 책")}<small>${esc(b.author)}</small></div>
+        </div>
+      </button>`).join("")}</div>`
+    : `<div class="shelf" style="display:block;padding:30px"><p class="empty" style="margin:0">아직 꽂힌 책이 없어요. 첫 번째 책을 써 보세요.</p></div>`}
+    <div class="foot">
+      <span>${list.length}권</span>
+      <button id="teach" class="btn ghost small">${S.teacher ? "선생님 모드 끄기" : "선생님"}</button>
+    </div>
+  </div>`;
+  $("#goWrite").onclick = openLogin;
+  $("#teach").onclick = async () => {
+    if (S.teacher){ S.teacher=false; showShelf(); return; }
+    const p = await ask({ title:"선생님 모드", input:{ type:"password", mode:"numeric" }, ok:"켜기" });
+    if (p === false) return;
+    if (p.trim() === CONFIG.TEACHER_PIN){ S.teacher = true; toast("선생님 모드가 켜졌어요"); showShelf(); }
+    else toast("비밀번호가 달라요");
+  };
+  document.querySelectorAll(".bk").forEach(b => b.onclick = () => openReader(b.dataset.id));
+}
+
+/* ---------- 로그인 ---------- */
+function openLogin(){
+  const d = $("#login"); $("#lgName").value=""; $("#lgPin").value=""; $("#lgErr").textContent="";
+  openDlg(d); setTimeout(() => $("#lgName").focus(), 50);
+}
+$("#lgCancel").onclick = () => closeDlg($("#login"));
+$("#lgGo").onclick = async () => {
+  const name = $("#lgName").value.trim(), pin = $("#lgPin").value.trim(), err = $("#lgErr");
+  if (!name){ err.textContent = "이름을 적어 주세요."; return; }
+  if (!/^\d{4}$/.test(pin)){ err.textContent = "비밀번호는 숫자 4자리로 적어 주세요."; return; }
+  err.textContent = "확인하고 있어요…";
+  try {
+    S.shelf = await api("GET","shelf") || {};
+    const found = Object.entries(S.shelf).find(([,b]) => b.author === name);
+    if (found){
+      const book = await api("GET", `books/${found[0]}`);
+      if (!book){ err.textContent = "책을 찾지 못했어요. 선생님께 말해 주세요."; return; }
+      if (book.pin !== pin && pin !== CONFIG.TEACHER_PIN){ err.textContent = "비밀번호가 달라요. 기억나지 않으면 선생님께 말해 주세요."; return; }
+      closeDlg($("#login")); openEditor(found[0], book);
+    } else {
+      err.textContent = "";
+      closeDlg($("#login"));
+      const yes = await ask({ title:"새 책 만들기", text:`'${name}' 이름으로 새 책을 만들까요?\n비밀번호 ${pin}을 꼭 기억해 두세요.`, ok:"새 책 만들기" });
+      if (!yes){ openDlg($("#login")); return; }
+      const id = uid(), book = newBook(name, pin);
+      await api("PUT", `books/${id}`, book);
+      await api("PUT", `shelf/${id}`, { title:book.title, author:name, pages:book.pages.length, updated:Date.now() });
+      openEditor(id, book);
+    }
+  } catch(e){
+    if (!$("#login").open) openDlg($("#login"));
+    err.textContent = "연결이 안 돼요. 인터넷을 확인하고 다시 눌러 주세요.";
+  }
+};
+$("#lgPin").addEventListener("keydown", e => { if (e.key === "Enter") $("#lgGo").click(); });
+
+/* ============================================================
+   책 쓰기
+   ============================================================ */
+let saveTimer = null, pending = false;
+function setStatus(s){
+  const el = $("#status"); if (!el) return;
+  el.className = "status" + (s==="error" ? " err" : "");
+  el.textContent = { saving:"저장 중…", saved:"저장됨", error:"저장 안 됨 — 인터넷을 확인하세요" }[s];
+}
+function queueSave(){ pending = true; setStatus("saving"); clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 700); }
+async function flushSave(){
+  clearTimeout(saveTimer); if (!pending || !S.book) return;
+  pending = false; const b = S.book, now = Date.now();
+  try {
+    await api("PATCH", `books/${S.id}`, { title:b.title, pages:b.pages, updated:now });
+    await api("PATCH", `shelf/${S.id}`, { title:b.title, author:b.author, pages:b.pages.length, updated:now });
+    setStatus("saved");
+  } catch(e){ pending = true; setStatus("error"); }
+}
+async function refreshThumb(){
+  const src = coverImg();
+  try { await api("PATCH", `shelf/${S.id}`, { thumb: src ? await shrink(src, 260, 0.75) : null }); } catch(e){}
+}
+
+async function openEditor(id, book){
+  S.view="edit"; S.id=id; S.book=normalize(book); S.tab="pages"; S.page=0;
+  $("#app").innerHTML = `<div class="wrap"><p class="empty">책을 펼치고 있어요…</p></div>`;
+  try { S.imgs = await api("GET", `imgs/${id}`) || {}; } catch(e){ S.imgs = {}; }
+  renderEditor();
+}
+function renderEditor(){
+  const b = S.book;
+  $("#app").innerHTML = `
+  <div class="bar"><div class="in">
+    <button class="btn ghost small" id="back">← 책장</button>
+    <h2>${esc(b.title || "제목 없는 책")}</h2>
+    <span class="status" id="status">저장됨</span>
+    <button class="btn sun small" id="read">책으로 보기</button>
+  </div></div>
+  <div style="height:14px"></div>
+  <div class="tabs" role="tablist">
+    ${[["pages","쪽 쓰기"],["cover","표지"]].map(([k,l]) =>
+      `<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}</button>`).join("")}
+  </div>
+  <div class="panel" id="panel"></div><div style="height:40px"></div>`;
+  $("#back").onclick = async () => { await flushSave(); showShelf(); };
+  $("#read").onclick = async () => { await flushSave(); openReader(S.id); };
+  document.querySelectorAll(".tab").forEach(t => t.onclick = () => { S.tab = t.dataset.tab; renderEditor(); });
+  ({ pages:renderPages, cover:renderCover })[S.tab]();
+}
+
+function renderPages(){
+  const b = S.book; S.page = Math.min(S.page, b.pages.length-1);
+  const p = b.pages[S.page], img = S.imgs[p.pid];
+  $("#panel").innerHTML = `
+    <div class="chips">
+      ${b.pages.map((q,i) => `<button class="chip ${i===S.page?"on":""} ${q.text.trim()?"done":""}" data-p="${i}" aria-label="${i+1}쪽">${i+1}</button>`).join("")}
+      <button class="chip add" id="addPg" aria-label="쪽 추가">+</button>
+    </div>
+    <div class="edit">
+      <div>
+        <label class="field"><span>${S.page+1}쪽 글</span>
+          <textarea id="pgText" rows="7" placeholder="이 쪽에 들어갈 이야기를 써요.">${esc(p.text)}</textarea></label>
+        <div class="field"><span>쪽 모양</span>
+          <div class="seg">${LAYOUTS.map(([k,l]) => `<button data-lay="${k}" aria-pressed="${p.layout===k}">${l}</button>`).join("")}</div></div>
+
+      </div>
+      <div>
+        <div class="field"><span>미리보기</span><div class="mini" id="prev">${pageHTML(p, img, S.page+1, true)}</div></div>
+        <div class="row" style="margin-bottom:18px">
+          ${p.layout==="text" ? "" : `
+          <button class="btn sun" id="pickImg">${img ? "그림 바꾸기" : "그림 넣기"}</button>
+          <input class="pick" type="file" id="pgFile" accept="image/*" tabindex="-1">
+          ${img ? `<button class="btn ghost small" id="rmImg">그림 빼기</button>` : ""}`}
+        </div>
+        <div class="row" style="justify-content:flex-end">
+          <button class="btn danger small" id="delPg">이 쪽 지우기</button>
+        </div>
+      </div>
+    </div>`;
+  const prev = () => $("#prev").innerHTML = pageHTML(p, S.imgs[p.pid], S.page+1, true);
+  document.querySelectorAll(".chip[data-p]").forEach(c => c.onclick = () => { S.page = +c.dataset.p; renderPages(); });
+  $("#addPg").onclick = () => { b.pages.push({ pid:uid(), text:"", layout:"side", hasImg:false }); S.page = b.pages.length-1; queueSave(); renderPages(); };
+  $("#pgText").oninput = e => { p.text = e.target.value; queueSave(); prev(); };
+  document.querySelectorAll("[data-lay]").forEach(x => x.onclick = () => { p.layout = x.dataset.lay; queueSave(); renderPages(); });
+  if ($("#pickImg")){
+    const pick = () => { $("#pgFile").value = ""; $("#pgFile").click(); };
+    $("#pickImg").onclick = pick;
+    $("#prev").onclick = e => { if (e.target.closest(".ph")) pick(); };
+  }
+  if ($("#pgFile")) $("#pgFile").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    toast("그림을 올리고 있어요…");
+    try {
+      const data = await shrink(URL.createObjectURL(f), 1000, 0.8);
+      await api("PUT", `imgs/${S.id}/${p.pid}`, data);
+      S.imgs[p.pid] = data; p.hasImg = true; queueSave(); refreshThumb(); renderPages(); toast("그림을 넣었어요");
+    } catch(err){ toast("그림을 올리지 못했어요. 다시 해 보세요"); }
+  };
+  if ($("#rmImg")) $("#rmImg").onclick = async () => {
+    if (!await ask({ title:"그림 빼기", text:"이 쪽 그림을 뺄까요?", ok:"빼기", danger:true })) return;
+    try { await api("DELETE", `imgs/${S.id}/${p.pid}`); } catch(e){}
+    delete S.imgs[p.pid]; p.hasImg = false; queueSave(); refreshThumb(); renderPages();
+  };
+  $("#delPg").onclick = async () => {
+    if (b.pages.length <= 1){ toast("책에는 적어도 한 쪽이 있어야 해요"); return; }
+    if (!await ask({ title:`${S.page+1}쪽 지우기`, text:"글과 그림이 함께 사라져요.", ok:"지우기", danger:true })) return;
+    const [x] = b.pages.splice(S.page,1);
+    if (S.imgs[x.pid]){ delete S.imgs[x.pid]; try { await api("DELETE", `imgs/${S.id}/${x.pid}`); } catch(e){} refreshThumb(); }
+    queueSave(); renderPages();
+  };
+}
+
+function renderCover(){
+  const b = S.book;
+  $("#panel").innerHTML = `
+    <div class="edit">
+      <div>
+        <label class="field"><span>책 제목</span><input type="text" id="ttl" value="${esc(b.title)}" maxlength="40"></label>
+        <div class="field"><span>표지 그림</span>
+          <p style="margin:0 0 8px;font-size:15px;color:var(--ink-soft)">표지 그림이 없으면 첫 그림이 표지가 돼요.</p>
+          <div class="row">
+            <button class="btn sun small" id="cvPick">${S.imgs.cover ? "표지 바꾸기" : "표지 그림 넣기"}</button>
+            <input class="pick" type="file" id="cvFile" accept="image/*" tabindex="-1">
+            ${S.imgs.cover ? `<button class="btn ghost small" id="cvRm">표지 그림 빼기</button>` : ""}
+          </div></div>
+      </div>
+      <div><div class="field"><span>미리보기</span><div class="mini" id="cvPrev">${coverHTML(b, S.id, coverImg())}</div></div></div>
+    </div>`;
+  $("#ttl").oninput = e => { b.title = e.target.value; queueSave(); $("#cvPrev").innerHTML = coverHTML(b, S.id, coverImg()); document.querySelector(".bar h2").textContent = b.title || "제목 없는 책"; };
+  $("#cvPick").onclick = () => { $("#cvFile").value = ""; $("#cvFile").click(); };
+  $("#cvFile").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try { const data = await shrink(URL.createObjectURL(f), 1000, 0.8);
+      await api("PUT", `imgs/${S.id}/cover`, data); S.imgs.cover = data; refreshThumb(); renderCover(); toast("표지를 넣었어요"); }
+    catch(err){ toast("그림을 올리지 못했어요. 다시 해 보세요"); }
+  };
+  if ($("#cvRm")) $("#cvRm").onclick = async () => {
+    try { await api("DELETE", `imgs/${S.id}/cover`); } catch(e){}
+    delete S.imgs.cover; refreshThumb(); renderCover();
+  };
+}
+
+/* ============================================================
+   넘기는 그림책 보기
+   ============================================================ */
+async function openReader(id){
+  S.view="read"; S.idx=0;
+  $("#app").innerHTML = `<div class="wrap"><p class="empty">책을 펼치고 있어요…</p></div>`;
+  try {
+    const [book, imgs] = await Promise.all([api("GET",`books/${id}`), api("GET",`imgs/${id}`)]);
+    if (!book){ toast("책을 찾지 못했어요"); showShelf(); return; }
+    S.id=id; S.book=normalize(book); S.imgs=imgs||{};
+  } catch(e){ toast("책을 불러오지 못했어요. 인터넷을 확인하세요"); showShelf(); return; }
+  const b = S.book;
+  $("#app").innerHTML = `
+  <div class="bar"><div class="in">
+    <button class="btn ghost small" id="back">← 책장</button>
+    <h2>${esc(b.title)}</h2>
+    ${S.teacher ? `<span class="status">비밀번호 ${esc(b.pin)}</span>
+      <button class="btn small" id="tEdit">고치기</button>
+      <button class="btn danger small" id="tDel">책 지우기</button>` : ""}
+  </div></div>
+  <div class="reader">
+    <div class="stage" id="stage"><div class="sheet" id="under"></div><div class="sheet leaf" id="leaf"></div></div>
+    <div class="nav">
+      <button class="arrow" id="pv" aria-label="앞 쪽">‹</button>
+      <span class="cnt" id="cnt"></span>
+      <button class="arrow" id="nx" aria-label="다음 쪽">›</button>
+    </div>
+  </div>`;
+  $("#back").onclick = showShelf;
+  if (S.teacher){
+    $("#tEdit").onclick = () => openEditor(id, b);
+    $("#tDel").onclick = async () => {
+      if (!await ask({ title:"책 지우기", text:`'${b.title}' (${b.author})\n지우면 되돌릴 수 없어요.`, ok:"지우기", danger:true })) return;
+      try { await api("DELETE",`imgs/${id}`); await api("DELETE",`books/${id}`); await api("DELETE",`shelf/${id}`); toast("책을 지웠어요"); showShelf(); }
+      catch(e){ toast("지우지 못했어요. 다시 해 보세요"); }
+    };
+  }
+  $("#pv").onclick = () => turn(-1);
+  $("#nx").onclick = () => turn(1);
+  let x0 = null;
+  const st = $("#stage");
+  st.addEventListener("touchstart", e => x0 = e.touches[0].clientX, {passive:true});
+  st.addEventListener("touchend", e => { if (x0==null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 50) turn(dx < 0 ? 1 : -1); x0 = null; });
+  st.addEventListener("click", e => { const r = st.getBoundingClientRect(); turn(e.clientX - r.left > r.width/2 ? 1 : -1); });
+  showSlide(0);
+}
+function slideCount(){ return S.book.pages.length + 2; }
+function slideHTML(i){
+  const b = S.book, n = b.pages.length;
+  if (i === 0) return coverHTML(b, S.id, coverImg());
+  if (i === n+1) return `<div class="pg end"><div><b>끝</b><br><span>${esc(b.title)} · 지은이 ${esc(b.author)}</span></div></div>`;
+  const p = b.pages[i-1]; return pageHTML(p, S.imgs[p.pid], i, false);
+}
+function showSlide(i){
+  S.idx = i; $("#under").innerHTML = slideHTML(i);
+  const n = S.book.pages.length;
+  $("#cnt").textContent = i===0 ? "표지" : i===n+1 ? "끝" : `${i} / ${n}`;
+  $("#pv").disabled = i===0; $("#nx").disabled = i===slideCount()-1;
+}
+function turn(d){
+  const to = S.idx + d;
+  if (S.busy || to < 0 || to >= slideCount()) return;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches || !Element.prototype.animate){ showSlide(to); return; }
+  S.busy = true;
+  const leaf = $("#leaf"), under = $("#under");
+  leaf.style.display = "block";
+  let frames;
+  if (d > 0){ leaf.innerHTML = slideHTML(S.idx); under.innerHTML = slideHTML(to); frames = [{transform:"rotateY(0deg)"},{transform:"rotateY(-180deg)"}]; }
+  else { leaf.innerHTML = slideHTML(to); frames = [{transform:"rotateY(-180deg)"},{transform:"rotateY(0deg)"}]; }
+  leaf.animate(frames, { duration:650, easing:"cubic-bezier(.45,.05,.3,1)" }).onfinish = () => {
+    leaf.style.display = "none"; showSlide(to); S.busy = false;
+  };
+}
+document.addEventListener("keydown", e => {
+  if (S.view !== "read") return;
+  if (e.key === "ArrowRight") turn(1);
+  if (e.key === "ArrowLeft") turn(-1);
+});
+window.addEventListener("beforeunload", () => { if (pending) flushSave(); });
+
+showShelf();
+</script>
+</body>
+</html>

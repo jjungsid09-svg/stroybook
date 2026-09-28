@@ -48,6 +48,18 @@ button{cursor:pointer;border:0;background:none}
 .cover img{width:100%;height:100%;object-fit:cover;display:block}
 .cover .ct{position:absolute;left:0;right:0;bottom:0;padding:8px 8px 8px 14px;background:rgba(255,255,255,.93);font-family:var(--display);font-size:15px;line-height:1.25;color:var(--ink)}
 .cover .ct small{display:block;font-family:var(--body);font-size:12px;color:var(--ink-soft)}
+.cover .num{position:absolute;left:12px;top:8px;background:var(--sun);color:var(--ink);font-family:var(--display);font-size:15px;padding:2px 9px;border-radius:999px}
+.check{background:#fff;border-radius:14px;padding:18px 20px;margin-bottom:22px}
+.check h3{font-family:var(--display);font-weight:400;font-size:22px;margin:0}
+.check .top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.check .legend{font-size:14px;color:var(--ink-soft);display:flex;gap:14px;flex-wrap:wrap}
+.check .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.nums{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
+.nb{border-radius:12px;padding:8px 10px;text-align:left;border:2px dashed var(--line);color:var(--ink-soft);min-height:64px}
+.nb b{font-family:var(--display);font-weight:400;font-size:20px;color:var(--ink)}
+.nb span{display:block;font-size:14px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nb.start{border:2px solid var(--sun);background:#FFF6D8;color:var(--ink)}
+.nb.done{border:2px solid var(--leaf);background:#E3F4EC;color:var(--ink)}
 .empty{padding:40px 0;text-align:center;color:var(--ink-soft)}
 .foot{display:flex;justify-content:space-between;align-items:center;margin-top:28px;color:var(--ink-soft);font-size:14px}
 .demo{background:var(--sun);padding:10px 14px;border-radius:10px;font-size:15px;margin-top:8px}
@@ -72,7 +84,7 @@ button{cursor:pointer;border:0;background:none}
 .guide{margin:6px 0 0;font-size:15px;color:var(--ink-soft)}
 .guide.warn{color:var(--coral);font-weight:bold}
 .q .hint{font-size:14px;color:var(--ink-soft)}
-textarea,input[type=text],input[type=password]{width:100%;max-width:100%;overflow-wrap:anywhere;border:2px solid var(--line);border-radius:12px;padding:10px 12px;background:#FBFDFF;resize:vertical}
+select,textarea,input[type=text],input[type=password]{width:100%;max-width:100%;overflow-wrap:anywhere;border:2px solid var(--line);border-radius:12px;padding:10px 12px;background:#FBFDFF;resize:vertical}
 textarea:focus,input:focus{border-color:var(--ink);outline:none}
 .card{margin-top:22px;padding:18px;border-radius:14px;background:#FFF6D8}
 .card h3{font-family:var(--display);font-weight:400;font-size:21px;margin:0 0 4px}
@@ -150,7 +162,9 @@ dialog .err{color:var(--coral);font-size:15px;min-height:22px;margin:6px 0}
 
 <dialog id="login">
   <h3>내 책 열기</h3>
-  <div class="field"><span>이름</span><input type="text" id="lgName" autocomplete="off" placeholder="예: 김하늘"></div>
+  <div class="field"><span>번호</span><select id="lgNum"></select></div>
+  <p id="lgWho" style="margin:-4px 0 12px;font-size:15px;display:none"></p>
+  <div class="field" id="lgNameF"><span>이름</span><input type="text" id="lgName" autocomplete="off" placeholder="예: 하늘"></div>
   <div class="field"><span>비밀번호 (숫자 4자리)</span><input type="password" id="lgPin" inputmode="numeric" maxlength="4" autocomplete="off"></div>
   <p class="hint" style="font-size:14px;color:var(--ink-soft);margin:0">처음이면 지금 정한 비밀번호로 새 책이 만들어져요.</p>
   <div class="err" id="lgErr"></div>
@@ -189,6 +203,8 @@ const firebaseConfig = {
 };
 const CONFIG = {
   TEACHER_PIN: "0000",
+  MAX_NUMBER: 25,       // 마지막 번호 (선생님 모드 '번호 설정'에서도 바꿀 수 있어요)
+  SKIP_NUMBERS: [23],   // 없는 번호
   DEFAULT_PAGES: 1
 };
 /* ============================================================ */
@@ -265,7 +281,7 @@ function ask({ title, text="", input=null, copy=null, ok="확인", cancel="취�
   return new Promise(res => {
     const d = $("#ask"), inp = $("#askIn"), ta = $("#askTa"), okB = $("#askOk"), noB = $("#askNo");
     $("#askT").textContent = title; $("#askP").textContent = text;
-    inp.style.display = input ? "block" : "none"; inp.value = "";
+    inp.style.display = input ? "block" : "none"; inp.value = (input && input.value != null) ? input.value : "";
     if (input){ inp.type = input.type || "text"; inp.placeholder = input.placeholder || ""; inp.inputMode = input.mode || "text"; }
     ta.style.display = copy ? "block" : "none"; ta.value = copy || "";
     okB.textContent = ok; okB.className = danger ? "btn danger" : "btn sun";
@@ -281,6 +297,14 @@ function ask({ title, text="", input=null, copy=null, ok="확인", cancel="취�
   });
 }
 
+/* ---------- 번호 ---------- */
+let ROSTER = { max:CONFIG.MAX_NUMBER, skip:CONFIG.SKIP_NUMBERS.slice() };
+async function loadRoster(){
+  try { const r = await api("GET","books/_settings"); if (r && r.max) ROSTER = { max:+r.max, skip:(r.skip||[]).map(Number) }; } catch(e){}
+}
+const rosterNums = () => Array.from({length:ROSTER.max}, (_,i) => i+1).filter(n => !ROSTER.skip.includes(n));
+const bookByNum = n => Object.entries(S.shelf).find(([,b]) => +b.num === +n);
+
 /* ---------- 도우미 ---------- */
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(toast.t); toast.t=setTimeout(()=>t.classList.remove("on"),2200); }
 function normalize(b){
@@ -288,8 +312,8 @@ function normalize(b){
     .map(p => ({ pid:p.pid || uid(), text:p.text || "", layout:p.layout || "side", hasImg:!!p.hasImg }));
   return { ...b, title:b.title || "", pages };
 }
-function newBook(name, pin){
-  return { author:name, pin, title:`${name}의 이야기`,
+function newBook(name, pin, num){
+  return { author:name, pin, num, title:`${name}의 이야기`,
     pages:Array.from({length:CONFIG.DEFAULT_PAGES}, () => ({ pid:uid(), text:"", layout:"side", hasImg:false })),
     created:Date.now(), updated:Date.now() };
 }
@@ -352,9 +376,29 @@ function coverImg(){
 async function showShelf(){
   S.view = "shelf"; S.id = null; S.book = null; S.imgs = {};
   $("#app").innerHTML = `<div class="wrap"><p class="empty">책장을 불러오고 있어요…</p></div>`;
-  try { S.shelf = await api("GET", "shelf") || {}; }
+  try { S.shelf = await api("GET", "shelf") || {}; await loadRoster(); }
   catch(e){ S.shelf = {}; toast("책장을 불러오지 못했어요. 인터넷 연결을 확인하세요."); }
-  const list = Object.entries(S.shelf).sort((a,b) => (b[1].updated||0) - (a[1].updated||0));
+  const list = Object.entries(S.shelf).sort((a,b) =>
+    (a[1].num ? +a[1].num : 999) - (b[1].num ? +b[1].num : 999) || (b[1].updated||0) - (a[1].updated||0));
+  const nums = rosterNums();
+  const made = nums.filter(n => bookByNum(n)).length;
+  const checkHTML = !S.teacher ? "" : `
+    <section class="check">
+      <div class="top">
+        <h3>제출 확인 <span style="font-size:16px;color:var(--ink-soft)">책 만든 사람 ${made} / ${nums.length}</span></h3>
+        <button class="btn ghost small" id="setNums">번호 설정</button>
+      </div>
+      <div class="legend" style="margin-bottom:10px">
+        <span><i style="border:2px dashed var(--line)"></i>아직 없음</span>
+        <span><i style="background:var(--sun)"></i>책만 만듦</span>
+        <span><i style="background:var(--leaf)"></i>글 쓰는 중</span>
+      </div>
+      <div class="nums">${nums.map(n => {
+        const f = bookByNum(n); if (!f) return `<div class="nb"><b>${n}</b><span>없음</span></div>`;
+        const [id,b] = f, w = b.written || 0;
+        return `<button class="nb ${w ? "done" : "start"}" data-id="${id}"><b>${n}</b><span>${esc(b.author)}</span><span>글 ${w} / ${b.pages||0}쪽</span></button>`;
+      }).join("")}</div>
+    </section>`;
   $("#app").innerHTML = `
   <div class="wrap">
     ${DEMO ? `<div class="demo">연습 모드예요. 이 기기에서만 저장돼요. 수업 전에 파일 위쪽 firebaseConfig를 채워 주세요.</div>` : ""}
@@ -362,10 +406,12 @@ async function showShelf(){
       <div><h1>우리 반 그림책 도서관</h1><p>책을 누르면 읽을 수 있어요.</p></div>
       <button class="btn sun" id="goWrite">내 책 쓰러 가기</button>
     </div>
+    ${checkHTML}
     ${list.length ? `<div class="shelf">${list.map(([id,b]) => `
       <button class="bk" data-id="${id}" aria-label="${esc(b.title)} 읽기">
         <div class="cover" style="--c:${colorOf(id)}">
           ${b.thumb ? `<img src="${b.thumb}" alt="">` : ""}
+          ${b.num ? `<span class="num">${b.num}번</span>` : ""}
           <div class="ct">${esc(b.title || "제목 없는 책")}<small>${esc(b.author)}</small></div>
         </div>
       </button>`).join("")}</div>`
@@ -383,23 +429,46 @@ async function showShelf(){
     if (p.trim() === CONFIG.TEACHER_PIN){ S.teacher = true; toast("선생님 모드가 켜졌어요"); showShelf(); }
     else toast("비밀번호가 달라요");
   };
-  document.querySelectorAll(".bk").forEach(b => b.onclick = () => openReader(b.dataset.id));
+  document.querySelectorAll(".bk, .nb[data-id]").forEach(b => b.onclick = () => openReader(b.dataset.id));
+  if ($("#setNums")) $("#setNums").onclick = async () => {
+    const max = await ask({ title:"번호 설정", text:"마지막 번호를 적어 주세요.", input:{ mode:"numeric", value:String(ROSTER.max) }, ok:"다음" });
+    if (max === false) return;
+    if (!/^\d+$/.test(max.trim()) || +max < 1 || +max > 60){ toast("1~60 사이 숫자로 적어 주세요"); return; }
+    const skip = await ask({ title:"번호 설정", text:"없는 번호를 쉼표로 적어 주세요.\n없으면 비워 두세요. (예: 23, 24)", input:{ value:ROSTER.skip.join(", ") }, ok:"저장" });
+    if (skip === false) return;
+    const list = skip.split(/[,\s]+/).filter(Boolean).map(Number).filter(n => n >= 1);
+    try { await api("PUT","books/_settings", { max:+max, skip:list }); toast("번호를 저장했어요"); showShelf(); }
+    catch(e){ toast("저장하지 못했어요. 다시 해 보세요"); }
+  };
 }
 
 /* ---------- 로그인 ---------- */
-function openLogin(){
+async function openLogin(){
   const d = $("#login"); $("#lgName").value=""; $("#lgPin").value=""; $("#lgErr").textContent="";
-  openDlg(d); setTimeout(() => $("#lgName").focus(), 50);
+  try { S.shelf = await api("GET","shelf") || {}; await loadRoster(); } catch(e){}
+  $("#lgNum").innerHTML = `<option value="">번호를 골라요</option>` + rosterNums().map(n => {
+    const f = bookByNum(n); return `<option value="${n}">${n}번${f ? " · " + esc(f[1].author) : ""}</option>`;
+  }).join("");
+  lgNumChanged(); openDlg(d);
 }
+function lgNumChanged(){
+  const n = $("#lgNum").value, f = n && bookByNum(n), who = $("#lgWho");
+  $("#lgNameF").style.display = f ? "none" : "";
+  who.style.display = f ? "" : "none";
+  if (f) who.textContent = `${n}번 ${f[1].author}의 책이에요. 비밀번호를 적어 주세요.`;
+  $("#lgErr").textContent = "";
+}
+$("#lgNum").onchange = lgNumChanged;
 $("#lgCancel").onclick = () => closeDlg($("#login"));
 $("#lgGo").onclick = async () => {
-  const name = $("#lgName").value.trim(), pin = $("#lgPin").value.trim(), err = $("#lgErr");
-  if (!name){ err.textContent = "이름을 적어 주세요."; return; }
+  const num = +$("#lgNum").value, name = $("#lgName").value.trim(), pin = $("#lgPin").value.trim(), err = $("#lgErr");
+  if (!num){ err.textContent = "번호를 골라 주세요."; return; }
   if (!/^\d{4}$/.test(pin)){ err.textContent = "비밀번호는 숫자 4자리로 적어 주세요."; return; }
   err.textContent = "확인하고 있어요…";
   try {
     S.shelf = await api("GET","shelf") || {};
-    const found = Object.entries(S.shelf).find(([,b]) => b.author === name);
+    const found = bookByNum(num);
+    if (!found && !name){ err.textContent = "이름을 적어 주세요."; return; }
     if (found){
       const book = await api("GET", `books/${found[0]}`);
       if (!book){ err.textContent = "책을 찾지 못했어요. 선생님께 말해 주세요."; return; }
@@ -408,11 +477,11 @@ $("#lgGo").onclick = async () => {
     } else {
       err.textContent = "";
       closeDlg($("#login"));
-      const yes = await ask({ title:"새 책 만들기", text:`'${name}' 이름으로 새 책을 만들까요?\n비밀번호 ${pin}을 꼭 기억해 두세요.`, ok:"새 책 만들기" });
+      const yes = await ask({ title:"새 책 만들기", text:`${num}번 ${name}\n새 책을 만들까요? 비밀번호 ${pin}을 꼭 기억해 두세요.`, ok:"새 책 만들기" });
       if (!yes){ openDlg($("#login")); return; }
-      const id = uid(), book = newBook(name, pin);
+      const id = uid(), book = newBook(name, pin, num);
       await api("PUT", `books/${id}`, book);
-      await api("PUT", `shelf/${id}`, { title:book.title, author:name, pages:book.pages.length, updated:Date.now() });
+      await api("PUT", `shelf/${id}`, { title:book.title, author:name, num, pages:book.pages.length, written:0, updated:Date.now() });
       openEditor(id, book);
     }
   } catch(e){
@@ -437,7 +506,7 @@ async function flushSave(){
   pending = false; const b = S.book, now = Date.now();
   try {
     await api("PATCH", `books/${S.id}`, { title:b.title, pages:b.pages, updated:now });
-    await api("PATCH", `shelf/${S.id}`, { title:b.title, author:b.author, pages:b.pages.length, updated:now });
+    await api("PATCH", `shelf/${S.id}`, { title:b.title, author:b.author, pages:b.pages.length, written:b.pages.filter(p => p.text.trim()).length, updated:now });
     setStatus("saved");
   } catch(e){ pending = true; setStatus("error"); }
 }
@@ -583,7 +652,8 @@ async function openReader(id){
   <div class="bar"><div class="in">
     <button class="btn ghost small" id="back">← 책장</button>
     <h2>${esc(b.title)}</h2>
-    ${S.teacher ? `<span class="status">비밀번호 ${esc(b.pin)}</span>
+    ${S.teacher ? `<span class="status">${b.num ? b.num + "번 · " : ""}비밀번호 ${esc(b.pin)}</span>
+      <button class="btn ghost small" id="tNum">번호 바꾸기</button>
       <button class="btn small" id="tEdit">고치기</button>
       <button class="btn danger small" id="tDel">책 지우기</button>` : ""}
   </div></div>
@@ -598,6 +668,19 @@ async function openReader(id){
   $("#back").onclick = showShelf;
   if (S.teacher){
     $("#tEdit").onclick = () => openEditor(id, b);
+    $("#tNum").onclick = async () => {
+      const v = await ask({ title:"번호 바꾸기", text:`${b.author}의 번호를 적어 주세요.`, input:{ mode:"numeric", value:b.num ? String(b.num) : "" }, ok:"바꾸기" });
+      if (v === false) return;
+      const n = +v.trim();
+      if (!Number.isInteger(n) || n < 1){ toast("숫자로 적어 주세요"); return; }
+      try {
+        S.shelf = await api("GET","shelf") || {};
+        const other = bookByNum(n);
+        if (other && other[0] !== id){ toast(`${n}번은 이미 ${other[1].author}의 책이 있어요`); return; }
+        await api("PATCH", `books/${id}`, { num:n }); await api("PATCH", `shelf/${id}`, { num:n });
+        b.num = n; toast(`${n}번으로 바꿨어요`); openReader(id);
+      } catch(e){ toast("바꾸지 못했어요. 다시 해 보세요"); }
+    };
     $("#tDel").onclick = async () => {
       if (!await ask({ title:"책 지우기", text:`'${b.title}' (${b.author})\n지우면 되돌릴 수 없어요.`, ok:"지우기", danger:true })) return;
       try { await api("DELETE",`imgs/${id}`); await api("DELETE",`books/${id}`); await api("DELETE",`shelf/${id}`); toast("책을 지웠어요"); showShelf(); }

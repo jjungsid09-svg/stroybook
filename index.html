@@ -145,6 +145,19 @@ textarea:focus,input:focus{border-color:var(--ink);outline:none}
 .nav button.arrow{width:58px;height:58px;border-radius:50%;background:var(--ink);color:#fff;font-size:26px}
 .nav button.arrow:disabled{opacity:.25}
 
+/* ---------- 감상평 ---------- */
+.talk{width:min(100%,calc((100dvh - 190px)*4/3));background:#fff;border-radius:14px;padding:18px 20px}
+.talk h3{font-family:var(--display);font-weight:400;font-size:22px;margin:0 0 10px}
+.talk .form{display:grid;grid-template-columns:130px minmax(0,1fr);gap:8px}
+@media(max-width:560px){.talk .form{grid-template-columns:1fr}}
+.talk .cnt2{font-size:14px;color:var(--ink-soft)}
+.cms{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:8px}
+.cms li{background:var(--paper);border-radius:12px;padding:10px 14px;display:flex;gap:10px;align-items:flex-start}
+.cms li div{flex:1;min-width:0;overflow-wrap:anywhere}
+.cms b{font-family:var(--display);font-weight:400}
+.cms small{color:var(--ink-soft);margin-left:6px}
+.cms .x{color:var(--coral);font-size:14px;padding:4px 8px}
+
 /* ---------- 창 ---------- */
 dialog{border:0;border-radius:18px;padding:26px;max-width:min(420px,92vw);width:100%;color:var(--ink)}
 dialog::backdrop{background:rgba(28,42,72,.45)}
@@ -229,10 +242,23 @@ const colorOf = id => COLORS[[...String(id)].reduce((a,c)=>a+c.charCodeAt(0),0) 
    storybook_books/{책}   : 책 내용(글, 쪽 모양, 비밀번호)
    storybook_imgs/{책__쪽} : 그림 한 장씩 따로 저장
 */
-const COL = { shelf:"storybook_shelf", books:"storybook_books", imgs:"storybook_imgs" };
+const COL = { shelf:"storybook_shelf", books:"storybook_books", imgs:"storybook_imgs", comments:"storybook_comments" };
 async function api(method, path, body){
   if (DEMO) return demoApi(method, path, body);
   const [kind, id, key] = path.split("/");
+  if (kind === "comments"){
+    const col = DB.collection(COL.comments);
+    if (method === "GET"){
+      const snap = await col.where("book","==",id).get(); const out = {};
+      snap.forEach(d => out[d.id.split("__")[1]] = d.data()); return out;
+    }
+    if (method === "PUT") return col.doc(`${id}__${key}`).set({ ...body, book:id });
+    if (method === "DELETE"){
+      if (key) return col.doc(`${id}__${key}`).delete();
+      const snap = await col.where("book","==",id).get();
+      return Promise.all(snap.docs.map(d => d.ref.delete()));
+    }
+  }
   if (kind === "imgs"){
     const col = DB.collection(COL.imgs);
     if (method === "GET"){
@@ -386,7 +412,8 @@ async function showShelf(){
     <section class="check">
       <div class="top">
         <h3>제출 확인 <span style="font-size:16px;color:var(--ink-soft)">책 만든 사람 ${made} / ${nums.length}</span></h3>
-        <button class="btn ghost small" id="setNums">번호 설정</button>
+        <div class="row"><button class="btn sun small" id="allPdf">전체 PDF 받기</button>
+        <button class="btn ghost small" id="setNums">번호 설정</button></div>
       </div>
       <div class="legend" style="margin-bottom:10px">
         <span><i style="border:2px dashed var(--line)"></i>아직 없음</span>
@@ -430,6 +457,11 @@ async function showShelf(){
     else toast("비밀번호가 달라요");
   };
   document.querySelectorAll(".bk, .nb[data-id]").forEach(b => b.onclick = () => openReader(b.dataset.id));
+  if ($("#allPdf")) $("#allPdf").onclick = async () => {
+    if (!list.length){ toast("아직 책이 없어요"); return; }
+    if (!await ask({ title:"전체 PDF 받기", text:`책 ${list.length}권을 번호순으로 한 파일에 담아요.\n책이 많으면 몇 분 걸릴 수 있어요.`, ok:"받기" })) return;
+    exportPDF(list.map(([id]) => [id]), "우리반_그림책_전체.pdf");
+  };
   if ($("#setNums")) $("#setNums").onclick = async () => {
     const max = await ask({ title:"번호 설정", text:"마지막 번호를 적어 주세요.", input:{ mode:"numeric", value:String(ROSTER.max) }, ok:"다음" });
     if (max === false) return;
@@ -637,6 +669,135 @@ function renderCover(){
 }
 
 /* ============================================================
+   PDF 만들기 (선생님 모드) — 쪽마다 그림으로 그려서 담아요
+   ============================================================ */
+const PW = 1200, PH = 900, U = PW / 100;
+const F_BODY = '"Gowun Dodum","Apple SD Gothic Neo","Malgun Gothic",sans-serif';
+const F_DISP = '"Jua","Apple SD Gothic Neo","Malgun Gothic",sans-serif';
+const pdfName = b => `${b.num ? b.num + "번_" : ""}${b.author}_${b.title || "그림책"}.pdf`.replace(/[\\/:*?"<>|]/g, "");
+function loadScript(src){ return new Promise((res,rej) => { const t = document.createElement("script"); t.src = src; t.onload = res; t.onerror = rej; document.head.appendChild(t); }); }
+function rr(x, px, py, w, h, r){ x.beginPath(); x.moveTo(px+r,py); x.arcTo(px+w,py,px+w,py+h,r); x.arcTo(px+w,py+h,px,py+h,r); x.arcTo(px,py+h,px,py,r); x.arcTo(px,py,px+w,py,r); x.closePath(); }
+function wrapLines(x, text, maxW){
+  const out = [];
+  for (const para of String(text).split("\n")){
+    let line = "";
+    for (const tok of para.split(/(\s+)/)){
+      if (!tok) continue;
+      if (/^\s+$/.test(tok)){ if (line) line += tok; continue; }
+      if (x.measureText(line + tok).width <= maxW){ line += tok; continue; }
+      if (line.trim()) out.push(line.trimEnd());
+      let w = tok;
+      while (x.measureText(w).width > maxW && w.length > 1){
+        let k = 1; while (k < w.length && x.measureText(w.slice(0,k+1)).width <= maxW) k++;
+        out.push(w.slice(0,k)); w = w.slice(k);
+      }
+      line = w;
+    }
+    out.push(line.trimEnd());
+  }
+  return out;
+}
+function fitLines(x, text, maxW, maxH, base, lh, fam){
+  let size = base, lines;
+  while (true){
+    x.font = `${size}px ${fam}`; lines = wrapLines(x, text, maxW);
+    if (lines.length * size * lh <= maxH || size < base * 0.45) return { size, lines, h: lines.length * size * lh };
+    size *= 0.93;
+  }
+}
+function drawLines(x, f, left, top, w, lh, align){
+  x.textBaseline = "top"; x.textAlign = align;
+  f.lines.forEach((l, i) => x.fillText(l, align === "center" ? left + w/2 : left, top + i*f.size*lh + f.size*(lh-1)/2));
+  x.textAlign = "left";
+}
+function drawImg(x, img, px, py, w, h, cover, r){
+  const s = cover ? Math.max(w/img.width, h/img.height) : Math.min(w/img.width, h/img.height);
+  const iw = img.width*s, ih = img.height*s, ix = px + (w-iw)/2, iy = py + (h-ih)/2;
+  x.save();
+  if (cover){ x.beginPath(); x.rect(px,py,w,h); x.clip(); }
+  else if (r){ rr(x, ix, iy, iw, ih, r); x.clip(); }
+  x.drawImage(img, ix, iy, iw, ih); x.restore();
+}
+async function drawSlide(book, id, imgs, i){
+  const c = document.createElement("canvas"); c.width = PW; c.height = PH;
+  const x = c.getContext("2d"), n = book.pages.length, ink = "#1C2A48", soft = "#56627D";
+  x.fillStyle = "#fff"; x.fillRect(0,0,PW,PH);
+  const img = async src => src ? await loadImage(src) : null;
+  if (i === 0){
+    x.fillStyle = colorOf(id); x.fillRect(0,0,PW,PH);
+    const first = book.pages.find(p => imgs[p.pid]);
+    const im = await img(imgs.cover || (first && imgs[first.pid]));
+    if (im) drawImg(x, im, 6*U, 6*U, PW-12*U, PH-32*U, false, 1.2*U);
+    const t = fitLines(x, book.title || "제목 없는 책", PW-19.2*U, 5.4*U*1.2*2, 5.4*U, 1.2, F_DISP);
+    const boxH = 5.2*U + t.h + 4.2*U, boxY = PH - 6*U - boxH;
+    x.fillStyle = "#fff"; rr(x, 6*U, boxY, PW-12*U, boxH, 1.6*U); x.fill();
+    x.fillStyle = ink; x.font = `${t.size}px ${F_DISP}`; drawLines(x, t, 9.6*U, boxY + 2.6*U, 0, 1.2, "left");
+    x.fillStyle = soft; x.font = `${2.8*U}px ${F_BODY}`; x.textBaseline = "top";
+    x.fillText(`지은이 ${book.author}`, 9.6*U, boxY + 2.6*U + t.h + 0.6*U);
+  } else if (i === n+1){
+    x.fillStyle = ink; x.textAlign = "center"; x.textBaseline = "middle";
+    x.font = `${9*U}px ${F_DISP}`; x.fillText("끝", PW/2, PH/2 - 3*U);
+    x.fillStyle = soft; x.font = `${3*U}px ${F_BODY}`; x.fillText(`${book.title} · 지은이 ${book.author}`, PW/2, PH/2 + 6*U);
+    x.textAlign = "left";
+  } else {
+    const p = book.pages[i-1], im = await img(imgs[p.pid]);
+    const lay = (!im && p.layout !== "text") ? "text" : p.layout, pad = 5*U, gap = 4*U, lh = 1.75;
+    x.fillStyle = ink;
+    if (lay === "side"){
+      const cw = PW - 2*pad - gap, iw = cw*1.15/2.15, tw = cw - iw, h = PH - 2*pad;
+      drawImg(x, im, pad, pad, iw, h, false, 1.2*U);
+      const f = fitLines(x, p.text, tw, h, 3.4*U, lh, F_BODY);
+      x.fillStyle = ink; drawLines(x, f, pad+iw+gap, pad + Math.max(0,(h - f.h)/2), tw, lh, "left");
+    } else if (lay === "top"){
+      const ch = PH - 2*pad - gap, ih = ch*1.5/2.5, th = ch - ih, w = PW - 2*pad;
+      drawImg(x, im, pad, pad, w, ih, false, 1.2*U);
+      const f = fitLines(x, p.text, w, th, 3.4*U, lh, F_BODY);
+      x.fillStyle = ink; drawLines(x, f, pad, pad+ih+gap, w, lh, "center");
+    } else if (lay === "full"){
+      drawImg(x, im, 0, 0, PW, PH, true);
+      if (p.text.trim()){
+        const bw = PW - 8*U, f = fitLines(x, p.text, bw - 6*U, PH*0.4 - 4.8*U, 3.4*U, lh, F_BODY);
+        const bh = f.h + 4.8*U, by = PH - 4*U - bh;
+        x.fillStyle = "rgba(255,255,255,.9)"; rr(x, 4*U, by, bw, bh, 1.6*U); x.fill();
+        x.fillStyle = ink; drawLines(x, f, 7*U, by + 2.4*U, bw - 6*U, lh, "left");
+      }
+    } else {
+      const w = PW - 24*U, h = PH - 18*U, f = fitLines(x, p.text, w, h, 4*U, lh, F_BODY);
+      drawLines(x, f, 12*U, 9*U + Math.max(0,(h - f.h)/2), w, lh, "center");
+    }
+    x.fillStyle = soft; x.font = `${2.2*U}px ${F_BODY}`; x.textAlign = "right"; x.textBaseline = "bottom";
+    x.fillText(String(i), PW - 3*U, PH - 2*U); x.textAlign = "left";
+  }
+  return c.toDataURL("image/jpeg", 0.85);
+}
+let pdfBusy = false;
+async function exportPDF(items, filename){
+  if (pdfBusy){ toast("PDF를 만드는 중이에요. 잠시만요"); return; }
+  pdfBusy = true;
+  try {
+    toast("PDF를 준비하고 있어요…");
+    if (!window.jspdf) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
+    try { await Promise.all([document.fonts.load(`40px ${F_BODY}`), document.fonts.load(`40px ${F_DISP}`)]); } catch(e){}
+    const doc = new window.jspdf.jsPDF({ orientation:"landscape", unit:"px", format:[PW,PH], hotfixes:["px_scaling"] });
+    let first = true;
+    for (let k = 0; k < items.length; k++){
+      let [id, book, imgs] = items[k];
+      if (!book){ book = await api("GET", `books/${id}`); imgs = await api("GET", `imgs/${id}`) || {}; }
+      if (!book) continue;
+      book = normalize(book);
+      if (items.length > 1) toast(`PDF 만드는 중… ${k+1} / ${items.length}권`);
+      for (let i = 0; i < book.pages.length + 2; i++){
+        const data = await drawSlide(book, id, imgs, i);
+        if (!first) doc.addPage([PW,PH], "landscape");
+        doc.addImage(data, "JPEG", 0, 0, PW, PH); first = false;
+      }
+    }
+    doc.save(filename); toast("PDF를 받았어요");
+  } catch(e){ console.error(e); toast("PDF를 만들지 못했어요. 인터넷을 확인하고 다시 해 보세요"); }
+  pdfBusy = false;
+}
+
+/* ============================================================
    넘기는 그림책 보기
    ============================================================ */
 async function openReader(id){
@@ -655,6 +816,7 @@ async function openReader(id){
     ${S.teacher ? `<span class="status">${b.num ? b.num + "번 · " : ""}비밀번호 ${esc(b.pin)}</span>
       <button class="btn ghost small" id="tNum">번호 바꾸기</button>
       <button class="btn small" id="tEdit">고치기</button>
+      <button class="btn sun small" id="tPdf">PDF 받기</button>
       <button class="btn danger small" id="tDel">책 지우기</button>` : ""}
   </div></div>
   <div class="reader">
@@ -664,7 +826,36 @@ async function openReader(id){
       <span class="cnt" id="cnt"></span>
       <button class="arrow" id="nx" aria-label="다음 쪽">›</button>
     </div>
+    <section class="talk" id="talk" style="display:none">
+      <h3>다 읽었어요! 감상평을 남겨 주세요</h3>
+      <div class="form">
+        <select id="cmNum" aria-label="내 번호"></select>
+        <textarea id="cmText" rows="2" maxlength="100" placeholder="예: 고양이가 말을 하는 장면이 재미있었어!"></textarea>
+      </div>
+      <div class="row" style="justify-content:space-between;margin-top:8px">
+        <span class="cnt2" id="cmCnt">0 / 100자</span>
+        <button class="btn sun small" id="cmGo">남기기</button>
+      </div>
+      <ul class="cms" id="cms"></ul>
+    </section>
   </div>`;
+  S.comments = {};
+  api("GET", `comments/${id}`).then(c => { S.comments = c || {}; renderComments(); }).catch(() => {});
+  $("#cmNum").innerHTML = `<option value="">내 번호</option>` + rosterNums().map(n => {
+    const f = bookByNum(n); return `<option value="${n}">${n}번${f ? " " + esc(f[1].author) : ""}</option>`;
+  }).join("");
+  $("#cmText").oninput = e => $("#cmCnt").textContent = `${e.target.value.length} / 100자`;
+  $("#cmGo").onclick = async () => {
+    const num = +$("#cmNum").value, text = $("#cmText").value.trim();
+    if (!num){ toast("내 번호를 골라 주세요"); return; }
+    if (+b.num === num){ toast("내 책에는 감상평을 쓸 수 없어요"); return; }
+    if (!text){ toast("감상평을 적어 주세요"); return; }
+    const f = bookByNum(num), cid = uid();
+    const c = { num, name: f ? f[1].author : "", text, created: Date.now() };
+    try { await api("PUT", `comments/${id}/${cid}`, c); S.comments[cid] = c;
+      $("#cmText").value = ""; $("#cmCnt").textContent = "0 / 100자"; renderComments(); toast("감상평을 남겼어요"); }
+    catch(e){ toast("남기지 못했어요. 다시 해 보세요"); }
+  };
   $("#back").onclick = showShelf;
   if (S.teacher){
     $("#tEdit").onclick = () => openEditor(id, b);
@@ -681,9 +872,10 @@ async function openReader(id){
         b.num = n; toast(`${n}번으로 바꿨어요`); openReader(id);
       } catch(e){ toast("바꾸지 못했어요. 다시 해 보세요"); }
     };
+    $("#tPdf").onclick = () => exportPDF([[id, b, S.imgs]], pdfName(b));
     $("#tDel").onclick = async () => {
       if (!await ask({ title:"책 지우기", text:`'${b.title}' (${b.author})\n지우면 되돌릴 수 없어요.`, ok:"지우기", danger:true })) return;
-      try { await api("DELETE",`imgs/${id}`); await api("DELETE",`books/${id}`); await api("DELETE",`shelf/${id}`); toast("책을 지웠어요"); showShelf(); }
+      try { await api("DELETE",`imgs/${id}`); await api("DELETE",`comments/${id}`); await api("DELETE",`books/${id}`); await api("DELETE",`shelf/${id}`); toast("책을 지웠어요"); showShelf(); }
       catch(e){ toast("지우지 못했어요. 다시 해 보세요"); }
     };
   }
@@ -695,6 +887,20 @@ async function openReader(id){
   st.addEventListener("touchend", e => { if (x0==null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 50) turn(dx < 0 ? 1 : -1); x0 = null; });
   st.addEventListener("click", e => { const r = st.getBoundingClientRect(); turn(e.clientX - r.left > r.width/2 ? 1 : -1); });
   showSlide(0);
+}
+function renderComments(){
+  const list = Object.entries(S.comments || {}).sort((a,b) => (b[1].created||0) - (a[1].created||0));
+  const el = $("#cms"); if (!el) return;
+  el.innerHTML = list.length ? list.map(([cid,c]) => {
+    const d = new Date(c.created || 0);
+    return `<li><div><b>${c.num}번 ${esc(c.name)}</b><small>${d.getMonth()+1}/${d.getDate()}</small><br>${esc(c.text)}</div>
+      ${S.teacher ? `<button class="x" data-cid="${cid}">지우기</button>` : ""}</li>`;
+  }).join("") : `<li style="color:var(--ink-soft)">아직 감상평이 없어요. 첫 번째로 남겨 보세요!</li>`;
+  el.querySelectorAll("[data-cid]").forEach(x => x.onclick = async () => {
+    if (!await ask({ title:"감상평 지우기", text:"이 감상평을 지울까요?", ok:"지우기", danger:true })) return;
+    try { await api("DELETE", `comments/${S.id}/${x.dataset.cid}`); delete S.comments[x.dataset.cid]; renderComments(); }
+    catch(e){ toast("지우지 못했어요"); }
+  });
 }
 function slideCount(){ return S.book.pages.length + 2; }
 function slideHTML(i){
@@ -708,6 +914,7 @@ function showSlide(i){
   const n = S.book.pages.length;
   $("#cnt").textContent = i===0 ? "표지" : i===n+1 ? "끝" : `${i} / ${n}`;
   $("#pv").disabled = i===0; $("#nx").disabled = i===slideCount()-1;
+  if ($("#talk")) $("#talk").style.display = i===slideCount()-1 ? "" : "none";
 }
 function turn(d){
   const to = S.idx + d;

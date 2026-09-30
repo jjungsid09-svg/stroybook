@@ -49,6 +49,11 @@ button{cursor:pointer;border:0;background:none}
 .cover .ct{position:absolute;left:0;right:0;bottom:0;padding:8px 8px 8px 14px;background:rgba(255,255,255,.93);font-family:var(--display);font-size:15px;line-height:1.25;color:var(--ink)}
 .cover .ct small{display:block;font-family:var(--body);font-size:12px;color:var(--ink-soft)}
 .cover .num{position:absolute;left:12px;top:8px;background:var(--sun);color:var(--ink);font-family:var(--display);font-size:15px;padding:2px 9px;border-radius:999px}
+.example{display:flex;gap:22px;align-items:center;background:#FFF6D8;border-radius:14px;padding:18px 22px;margin-bottom:22px}
+.example .cover{flex:0 0 auto}
+.example h3{font-family:var(--display);font-weight:400;font-size:24px;margin:0 0 4px}
+.example p{margin:0 0 12px;color:var(--ink-soft)}
+@media(max-width:560px){.example{flex-direction:column;text-align:center}}
 .check{background:#fff;border-radius:14px;padding:18px 20px;margin-bottom:22px}
 .check h3{font-family:var(--display);font-weight:400;font-size:22px;margin:0}
 .check .top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
@@ -329,7 +334,8 @@ async function loadRoster(){
   try { const r = await api("GET","books/_settings"); if (r && r.max) ROSTER = { max:+r.max, skip:(r.skip||[]).map(Number) }; } catch(e){}
 }
 const rosterNums = () => Array.from({length:ROSTER.max}, (_,i) => i+1).filter(n => !ROSTER.skip.includes(n));
-const bookByNum = n => Object.entries(S.shelf).find(([,b]) => +b.num === +n);
+const bookByNum = n => Object.entries(S.shelf).find(([,b]) => b.num != null && b.num !== "" && +b.num === +n);
+const isExample = b => b && b.num != null && b.num !== "" && +b.num === 0;   // 0번 = 선생님 예시 책
 
 /* ---------- 도우미 ---------- */
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(toast.t); toast.t=setTimeout(()=>t.classList.remove("on"),2200); }
@@ -404,7 +410,8 @@ async function showShelf(){
   $("#app").innerHTML = `<div class="wrap"><p class="empty">책장을 불러오고 있어요…</p></div>`;
   try { S.shelf = await api("GET", "shelf") || {}; await loadRoster(); }
   catch(e){ S.shelf = {}; toast("책장을 불러오지 못했어요. 인터넷 연결을 확인하세요."); }
-  const list = Object.entries(S.shelf).sort((a,b) =>
+  const ex = Object.entries(S.shelf).find(([,b]) => isExample(b));
+  const list = Object.entries(S.shelf).filter(([,b]) => !isExample(b)).sort((a,b) =>
     (a[1].num ? +a[1].num : 999) - (b[1].num ? +b[1].num : 999) || (b[1].updated||0) - (a[1].updated||0));
   const nums = rosterNums();
   const made = nums.filter(n => bookByNum(n)).length;
@@ -413,6 +420,7 @@ async function showShelf(){
       <div class="top">
         <h3>제출 확인 <span style="font-size:16px;color:var(--ink-soft)">책 만든 사람 ${made} / ${nums.length}</span></h3>
         <div class="row"><button class="btn sun small" id="allPdf">전체 PDF 받기</button>
+        <button class="btn ghost small" id="exBook">${ex ? "예시 책 고치기" : "예시 책 만들기"}</button>
         <button class="btn ghost small" id="setNums">번호 설정</button></div>
       </div>
       <div class="legend" style="margin-bottom:10px">
@@ -434,6 +442,17 @@ async function showShelf(){
       <button class="btn sun" id="goWrite">내 책 쓰러 가기</button>
     </div>
     ${checkHTML}
+    ${ex ? `<section class="example">
+      <div class="cover" style="--c:${colorOf(ex[0])}">
+        ${ex[1].thumb ? `<img src="${ex[1].thumb}" alt="">` : ""}
+        <div class="ct">${esc(ex[1].title || "예시 책")}<small>${esc(ex[1].author)}</small></div>
+      </div>
+      <div>
+        <h3>선생님 예시 책</h3>
+        <p>넘겨 보면서 어떻게 만드는지 살펴봐요.</p>
+        <button class="btn" id="exRead">예시 책 넘겨 보기</button>
+      </div>
+    </section>` : ""}
     ${list.length ? `<div class="shelf">${list.map(([id,b]) => `
       <button class="bk" data-id="${id}" aria-label="${esc(b.title)} 읽기">
         <div class="cover" style="--c:${colorOf(id)}">
@@ -457,6 +476,17 @@ async function showShelf(){
     else toast("비밀번호가 달라요");
   };
   document.querySelectorAll(".bk, .nb[data-id]").forEach(b => b.onclick = () => openReader(b.dataset.id));
+  if ($("#exRead")) $("#exRead").onclick = () => openReader(ex[0]);
+  if ($("#exBook")) $("#exBook").onclick = async () => {
+    try {
+      if (ex){ const book = await api("GET", `books/${ex[0]}`); if (book){ openEditor(ex[0], book); return; } }
+      const id = uid(), book = newBook("선생님", CONFIG.TEACHER_PIN, 0);
+      book.title = "선생님 예시 책";
+      await api("PUT", `books/${id}`, book);
+      await api("PUT", `shelf/${id}`, { title:book.title, author:book.author, num:0, pages:book.pages.length, written:0, updated:Date.now() });
+      openEditor(id, book);
+    } catch(e){ toast("열지 못했어요. 다시 해 보세요"); }
+  };
   if ($("#allPdf")) $("#allPdf").onclick = async () => {
     if (!list.length){ toast("아직 책이 없어요"); return; }
     if (!await ask({ title:"전체 PDF 받기", text:`책 ${list.length}권을 번호순으로 한 파일에 담아요.\n책이 많으면 몇 분 걸릴 수 있어요.`, ok:"받기" })) return;
@@ -806,13 +836,13 @@ async function openReader(id){
   try {
     const [book, imgs] = await Promise.all([api("GET",`books/${id}`), api("GET",`imgs/${id}`)]);
     if (!book){ toast("책을 찾지 못했어요"); showShelf(); return; }
-    S.id=id; S.book=normalize(book); S.imgs=imgs||{};
+    S.id=id; S.book=normalize(book); S.imgs=imgs||{}; S.isExample = isExample(book);
   } catch(e){ toast("책을 불러오지 못했어요. 인터넷을 확인하세요"); showShelf(); return; }
   const b = S.book;
   $("#app").innerHTML = `
   <div class="bar"><div class="in">
     <button class="btn ghost small" id="back">← 책장</button>
-    <h2>${esc(b.title)}</h2>
+    <h2>${S.isExample ? "예시 · " : ""}${esc(b.title)}</h2>
     ${S.teacher ? `<span class="status">${b.num ? b.num + "번 · " : ""}비밀번호 ${esc(b.pin)}</span>
       <button class="btn ghost small" id="tNum">번호 바꾸기</button>
       <button class="btn small" id="tEdit">고치기</button>
@@ -860,10 +890,10 @@ async function openReader(id){
   if (S.teacher){
     $("#tEdit").onclick = () => openEditor(id, b);
     $("#tNum").onclick = async () => {
-      const v = await ask({ title:"번호 바꾸기", text:`${b.author}의 번호를 적어 주세요.`, input:{ mode:"numeric", value:b.num ? String(b.num) : "" }, ok:"바꾸기" });
+      const v = await ask({ title:"번호 바꾸기", text:`${b.author}의 번호를 적어 주세요.\n0번으로 바꾸면 예시 책이 돼요.`, input:{ mode:"numeric", value:b.num ? String(b.num) : "" }, ok:"바꾸기" });
       if (v === false) return;
       const n = +v.trim();
-      if (!Number.isInteger(n) || n < 1){ toast("숫자로 적어 주세요"); return; }
+      if (!Number.isInteger(n) || n < 0){ toast("숫자로 적어 주세요 (0번은 예시 책)"); return; }
       try {
         S.shelf = await api("GET","shelf") || {};
         const other = bookByNum(n);
@@ -914,7 +944,7 @@ function showSlide(i){
   const n = S.book.pages.length;
   $("#cnt").textContent = i===0 ? "표지" : i===n+1 ? "끝" : `${i} / ${n}`;
   $("#pv").disabled = i===0; $("#nx").disabled = i===slideCount()-1;
-  if ($("#talk")) $("#talk").style.display = i===slideCount()-1 ? "" : "none";
+  if ($("#talk")) $("#talk").style.display = (i===slideCount()-1 && !S.isExample) ? "" : "none";
 }
 function turn(d){
   const to = S.idx + d;

@@ -73,6 +73,19 @@ button{cursor:pointer;border:0;background:none}
 .nb.fin b{color:#fff}
 .cover .fin{position:absolute;right:8px;top:8px;background:var(--leaf);color:#fff;font-family:var(--display);font-size:14px;padding:2px 9px;border-radius:999px;box-shadow:0 1px 3px rgba(0,0,0,.25)}
 .btn.go-fin{background:var(--leaf);color:#fff}
+.btn.pass{background:var(--coral);color:#fff}
+.nb.ok{border:2px solid var(--coral);background:var(--coral);color:#fff}
+.nb.ok b{color:#fff}
+.nb.redo{border:2px solid var(--coral);background:#FDE8E4;color:var(--ink)}
+.cover .fin.ok{background:var(--coral)}
+.note{max-width:1060px;margin:0 20px 14px;border-radius:14px;padding:14px 18px;font-size:17px;border:2px solid}
+.note b{font-family:var(--display);font-weight:400;font-size:20px;display:block;margin-bottom:2px}
+.note p{margin:0;white-space:pre-wrap}
+.note small{display:block;margin-top:6px;font-size:14px;color:var(--ink-soft)}
+.note.ok{background:#FDE8E4;border-color:var(--coral)}
+.note.redo{background:#FFF6D8;border-color:var(--sun)}
+.quick{display:flex;flex-wrap:wrap;gap:6px;margin:-4px 0 6px}
+.quick button{padding:5px 11px;border-radius:999px;border:1.5px solid var(--line);background:#fff;font-size:14px}
 .btn.fin-on{background:#E3F4EC;color:var(--leaf);border:2px solid var(--leaf)}
 .empty{padding:40px 0;text-align:center;color:var(--ink-soft)}
 .foot{display:flex;justify-content:space-between;align-items:center;margin-top:28px;color:var(--ink-soft);font-size:14px}
@@ -200,6 +213,22 @@ dialog .err{color:var(--coral);font-size:15px;min-height:22px;margin:6px 0}
   <div class="row" style="justify-content:flex-end">
     <button class="btn ghost small" id="lgCancel">닫기</button>
     <button class="btn sun" id="lgGo">책 열기</button>
+  </div>
+</dialog>
+<dialog id="rev">
+  <h3>선생님 확인</h3>
+  <p id="revInfo" style="margin:-6px 0 12px;font-size:15px;color:var(--ink-soft)"></p>
+  <label class="field"><span>학생에게 남길 말 <small style="font-size:14px;color:var(--ink-soft)">(통과는 비워도 돼요)</small></span>
+    <textarea id="revMsg" rows="3" maxlength="200" placeholder="예: 5쪽 그림을 더 채워 보자!"></textarea></label>
+  <div class="quick" id="revQuick"></div>
+  <div class="err" id="revErr"></div>
+  <div class="row" style="justify-content:space-between">
+    <button class="btn ghost small" id="revClear">확인 지우기</button>
+    <div class="row">
+      <button class="btn ghost small" id="revNo">닫기</button>
+      <button class="btn sun small" id="revRedo">더 해 보기</button>
+      <button class="btn pass small" id="revOk">★ 통과</button>
+    </div>
   </div>
 </dialog>
 <dialog id="ask">
@@ -437,11 +466,12 @@ async function showShelf(){
     (a[1].num ? +a[1].num : 999) - (b[1].num ? +b[1].num : 999) || (b[1].updated||0) - (a[1].updated||0));
   const nums = rosterNums();
   const made = nums.filter(n => bookByNum(n, vt)).length;
-  const fin = nums.filter(n => { const f = bookByNum(n, vt); return f && f[1].done; }).length;
+  const fin = nums.filter(n => { const f = bookByNum(n, vt); return f && (f[1].done || f[1].rev === "ok"); }).length;
+  const okN = nums.filter(n => { const f = bookByNum(n, vt); return f && f[1].rev === "ok"; }).length;
   const checkHTML = !S.teacher ? "" : `
     <section class="check">
       <div class="top">
-        <h3>${esc(themeName(vt))} · 제출 확인 <span style="font-size:16px;color:var(--ink-soft)">책 만든 사람 ${made} / ${nums.length} · <b style="color:var(--leaf)">완료 ${fin} / ${nums.length}</b></span></h3>
+        <h3>${esc(themeName(vt))} · 제출 확인 <span style="font-size:16px;color:var(--ink-soft)">책 만든 사람 ${made} / ${nums.length} · <b style="color:var(--leaf)">완료 ${fin}</b> · <b style="color:var(--coral)">통과 ${okN}</b> / ${nums.length}</span></h3>
         <div class="row"><button class="btn sun small" id="allPdf">전체 PDF 받기</button>
         <button class="btn ghost small" id="exBook">${ex ? "예시 책 고치기" : "예시 책 만들기"}</button>
         <button class="btn ghost small" id="setNums">번호 설정</button></div>
@@ -455,12 +485,16 @@ async function showShelf(){
         <span><i style="border:2px dashed var(--line)"></i>아직 없음</span>
         <span><i style="background:var(--sun)"></i>책만 만듦</span>
         <span><i style="background:#E3F4EC;border:2px solid var(--leaf)"></i>글 쓰는 중</span>
-        <span><i style="background:var(--leaf)"></i>완료</span>
+        <span><i style="background:var(--leaf)"></i>완료 (확인 기다림)</span>
+        <span><i style="background:#FDE8E4;border:2px solid var(--coral)"></i>더 해 보기</span>
+        <span><i style="background:var(--coral)"></i>통과</span>
       </div>
       <div class="nums">${nums.map(n => {
         const f = bookByNum(n, vt); if (!f) return `<div class="nb"><b>${n}</b><span>없음</span></div>`;
         const [id,b] = f, w = b.written || 0;
-        if (b.done) return `<button class="nb fin" data-id="${id}"><b>${n}</b><span>${esc(b.author)}</span><span>✓ 완료</span></button>`;
+        if (b.rev === "ok") return `<button class="nb ok" data-id="${id}"><b>${n}</b><span>${esc(b.author)}</span><span>★ 통과</span></button>`;
+        if (b.done) return `<button class="nb fin" data-id="${id}"><b>${n}</b><span>${esc(b.author)}</span><span>✓ ${b.rev === "redo" ? "다시 냄" : "완료"}</span></button>`;
+        if (b.rev === "redo") return `<button class="nb redo" data-id="${id}"><b>${n}</b><span>${esc(b.author)}</span><span>고치는 중</span></button>`;
         return `<button class="nb ${w ? "done" : "start"}" data-id="${id}"><b>${n}</b><span>${esc(b.author)}</span><span>글 ${w} / ${b.pages||0}쪽</span></button>`;
       }).join("")}</div>
     </section>`;
@@ -490,7 +524,7 @@ async function showShelf(){
         <div class="cover" style="--c:${colorOf(id)}">
           ${b.thumb ? `<img src="${b.thumb}" alt="">` : ""}
           ${b.num ? `<span class="num">${b.num}번</span>` : ""}
-          ${b.done ? `<span class="fin">✓ 완료</span>` : ""}
+          ${b.rev === "ok" ? `<span class="fin ok">★ 통과</span>` : b.done ? `<span class="fin">✓ 완료</span>` : ""}
           <div class="ct">${esc(b.title || "제목 없는 책")}<small>${esc(b.author)}</small></div>
         </div>
       </button>`).join("")}</div>`
@@ -658,6 +692,7 @@ function renderEditor(){
     <button class="btn sun small" id="read">책으로 보기</button>
   </div></div>
   <div style="height:14px"></div>
+  ${noteHTML(b)}
   <div class="tabs" role="tablist">
     ${[["pages","쪽 쓰기"],["cover","표지"]].map(([k,l]) =>
       `<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}</button>`).join("")}
@@ -669,6 +704,47 @@ function renderEditor(){
   document.querySelectorAll(".tab").forEach(t => t.onclick = () => { S.tab = t.dataset.tab; renderEditor(); });
   ({ pages:renderPages, cover:renderCover })[S.tab]();
 }
+
+/* ---------- 선생님 확인 ---------- */
+function noteHTML(b){
+  const msg = b.revMsg ? `<p>${esc(b.revMsg)}</p>` : "";
+  if (b.rev === "ok") return `<div class="note ok"><b>★ 선생님 확인 통과!</b>${msg}</div>`;
+  if (b.rev === "redo") return `<div class="note redo"><b>선생님이 조금 더 해 보자고 하셨어요</b>${msg}
+    <small>${b.done ? "다시 냈어요. 선생님 확인을 기다려요." : "다 고치면 '다 만들었어요'를 다시 눌러 주세요."}</small></div>`;
+  return "";
+}
+const QUICK = ["그림을 더 채워 보자", "색칠을 마무리하자", "글을 조금 더 써 보자", "맞춤법을 고쳐 보자", "표지를 완성하자", "제목을 정해 보자"];
+function openReview(id, b){
+  return new Promise(res => {
+    const d = $("#rev"), msg = $("#revMsg"), err = $("#revErr");
+    $("#revInfo").textContent = `${b.num ? b.num + "번 " : ""}${b.author} · ${b.title || "제목 없는 책"} · ${b.done ? "완료함" : "아직 완료 안 함"}`;
+    msg.value = b.revMsg || ""; err.textContent = "";
+    $("#revQuick").innerHTML = QUICK.map(q => `<button type="button">${q}</button>`).join("");
+    $("#revQuick").querySelectorAll("button").forEach(q => q.onclick = () => {
+      msg.value = (msg.value.trim() ? msg.value.trim() + "\n" : "") + q.textContent + "."; msg.focus(); });
+    $("#revClear").style.display = b.rev ? "" : "none";
+    const save = async data => {
+      err.textContent = "저장하고 있어요…";
+      try {
+        await api("PATCH", `books/${id}`, data); await api("PATCH", `shelf/${id}`, data);
+        Object.assign(b, data); if (S.shelf[id]) Object.assign(S.shelf[id], data);
+        closeDlg(d); res(true);
+      } catch(e){ err.textContent = "저장하지 못했어요. 인터넷을 확인하세요."; }
+    };
+    $("#revOk").onclick = () => save({ rev:"ok", revMsg:msg.value.trim(), revAt:Date.now() });
+    $("#revRedo").onclick = () => {
+      if (!msg.value.trim()){ err.textContent = "더 해 볼 것을 적어 주세요. (아래 단추를 눌러도 돼요)"; return; }
+      save({ rev:"redo", revMsg:msg.value.trim(), revAt:Date.now(), done:false, doneAt:null });
+    };
+    $("#revClear").onclick = () => save({ rev:null, revMsg:"", revAt:null });
+    $("#revNo").onclick = () => { closeDlg(d); res(false); };
+    d.oncancel = e => { e.preventDefault(); closeDlg(d); res(false); };
+    openDlg(d);
+  });
+}
+const revText = b => b.rev === "ok" ? '<b style="color:var(--coral)">★ 통과</b>'
+  : b.done ? `<b style="color:var(--leaf)">✓ ${b.rev === "redo" ? "다시 냄" : "완료"}</b>`
+  : b.rev === "redo" ? "더 해 보는 중" : "아직 만드는 중";
 
 /* ---------- 완료 버튼 ---------- */
 async function toggleDone(){
@@ -942,7 +1018,8 @@ async function openReader(id){
   <div class="bar"><div class="in">
     <button class="btn ghost small" id="back">← 책장</button>
     <h2>${S.isExample ? "예시 · " : ""}${esc(b.title)}</h2>
-    ${S.teacher ? `<span class="status">${b.num ? b.num + "번 · " : ""}비밀번호 ${esc(b.pin)} · ${b.done ? '<b style="color:var(--leaf)">✓ 완료</b>' : "아직 만드는 중"}</span>
+    ${S.teacher ? `<span class="status">${b.num ? b.num + "번 · " : ""}비밀번호 ${esc(b.pin)} · <span id="tSt">${revText(b)}</span></span>
+      ${S.isExample ? "" : `<button class="btn pass small" id="tRev">선생님 확인</button>`}
       <button class="btn ghost small" id="tNum">번호 바꾸기</button>
       <button class="btn small" id="tEdit">고치기</button>
       <button class="btn sun small" id="tPdf">PDF 받기</button>
@@ -988,6 +1065,10 @@ async function openReader(id){
   $("#back").onclick = showShelf;
   if (S.teacher){
     $("#tEdit").onclick = () => openEditor(id, b);
+    if ($("#tRev")) $("#tRev").onclick = async () => {
+      if (await openReview(id, b)){ $("#tSt").innerHTML = revText(b);
+        toast(b.rev === "ok" ? "통과로 표시했어요" : b.rev === "redo" ? "학생에게 더 해 볼 것을 남겼어요" : "확인을 지웠어요"); }
+    };
     $("#tNum").onclick = async () => {
       const v = await ask({ title:"번호 바꾸기", text:`${b.author}의 번호를 적어 주세요.\n0번으로 바꾸면 예시 책이 돼요.`, input:{ mode:"numeric", value:b.num ? String(b.num) : "" }, ok:"바꾸기" });
       if (v === false) return;

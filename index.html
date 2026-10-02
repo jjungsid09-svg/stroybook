@@ -190,6 +190,7 @@ dialog .err{color:var(--coral);font-size:15px;min-height:22px;margin:6px 0}
 
 <dialog id="login">
   <h3>내 책 열기</h3>
+  <div class="field" id="lgThF"><span>어느 책장에 쓸까요?</span><select id="lgTh"></select></div>
   <div class="field"><span>번호</span><select id="lgNum"></select></div>
   <p id="lgWho" style="margin:-4px 0 12px;font-size:15px;display:none"></p>
   <div class="field" id="lgNameF"><span>이름</span><input type="text" id="lgName" autocomplete="off" placeholder="예: 하늘"></div>
@@ -448,7 +449,7 @@ async function showShelf(){
       <div class="row" style="margin-bottom:12px">
         <button class="btn small" id="newTheme">+ 새 책장 만들기</button>
         <button class="btn ghost small" id="renTheme">책장 이름 바꾸기</button>
-        ${vt !== ACTIVE ? `<button class="btn ghost small" id="useTheme">이 책장에 쓰게 하기</button>` : ""}
+        ${vt !== ACTIVE ? `<button class="btn ghost small" id="useTheme">기본 책장으로 정하기</button>` : ""}
       </div>
       <div class="legend" style="margin-bottom:10px">
         <span><i style="border:2px dashed var(--line)"></i>아직 없음</span>
@@ -467,11 +468,11 @@ async function showShelf(){
   <div class="wrap">
     ${DEMO ? `<div class="demo">연습 모드예요. 이 기기에서만 저장돼요. 수업 전에 파일 위쪽 firebaseConfig를 채워 주세요.</div>` : ""}
     <div class="hero">
-      <div><h1>우리 반 그림책 도서관</h1><p>지금 쓰는 책장: <b>${esc(themeName(ACTIVE))}</b> · 책을 누르면 읽을 수 있어요.</p></div>
+      <div><h1>우리 반 그림책 도서관</h1><p>${THEMES.length > 1 ? "책장을 골라 구경하고, 책을 누르면 읽을 수 있어요." : "책을 누르면 읽을 수 있어요."}</p></div>
       <button class="btn sun" id="goWrite">내 책 쓰러 가기</button>
     </div>
     ${THEMES.length > 1 || S.teacher ? `<div class="themes">${THEMES.map(t =>
-      `<button class="th" data-th="${t.id}" aria-pressed="${t.id === vt}">${esc(t.name)}${t.id === ACTIVE ? "<em>지금 쓰는 중</em>" : ""}</button>`).join("")}</div>` : ""}
+      `<button class="th" data-th="${t.id}" aria-pressed="${t.id === vt}">${esc(t.name)}${t.id === ACTIVE && S.teacher ? "<em>기본</em>" : ""}</button>`).join("")}</div>` : ""}
     ${checkHTML}
     ${ex ? `<section class="example">
       <div class="cover" style="--c:${colorOf(ex[0])}">
@@ -526,7 +527,7 @@ async function showShelf(){
   };
   document.querySelectorAll("[data-th]").forEach(t => t.onclick = () => { S.viewTheme = t.dataset.th; showShelf(); });
   if ($("#newTheme")) $("#newTheme").onclick = async () => {
-    const name = await ask({ title:"새 책장 만들기", text:"새 주제의 이름을 적어 주세요.\n만들면 학생들은 이제 이 책장에 새 책을 써요.\n지금까지 만든 책은 원래 책장에 그대로 남아요.", input:{ placeholder:"예: 자유 주제" }, ok:"만들기" });
+    const name = await ask({ title:"새 책장 만들기", text:"새 주제의 이름을 적어 주세요.\n새 책장이 기본 책장이 돼요.\n학생들은 로그인할 때 다른 책장도 고를 수 있고,\n지금까지 만든 책은 원래 책장에 그대로 남아요.", input:{ placeholder:"예: 자유 주제" }, ok:"만들기" });
     if (name === false) return;
     if (!name.trim()){ toast("이름을 적어 주세요"); return; }
     const id = uid(), themes = THEMES.concat([{ id, name:name.trim(), created:Date.now() }]);
@@ -540,7 +541,7 @@ async function showShelf(){
     try { await saveSettings({ themes, active:ACTIVE }); showShelf(); } catch(e){ toast("바꾸지 못했어요"); }
   };
   if ($("#useTheme")) $("#useTheme").onclick = async () => {
-    if (!await ask({ title:"이 책장에 쓰게 하기", text:`학생들이 '${themeName(vt)}' 책장에 책을 쓰게 바꿀까요?`, ok:"바꾸기" })) return;
+    if (!await ask({ title:"기본 책장으로 정하기", text:`'${themeName(vt)}'을(를) 기본 책장으로 정할까요?\n학생이 로그인할 때 이 책장이 먼저 골라져 있어요.`, ok:"정하기" })) return;
     try { await saveSettings({ themes:THEMES, active:vt }); toast("바꿨어요"); showShelf(); } catch(e){ toast("바꾸지 못했어요"); }
   };
   if ($("#setNums")) $("#setNums").onclick = async () => {
@@ -559,17 +560,27 @@ async function showShelf(){
 async function openLogin(){
   const d = $("#login"); $("#lgName").value=""; $("#lgPin").value=""; $("#lgErr").textContent="";
   try { S.shelf = await api("GET","shelf") || {}; await loadRoster(); } catch(e){}
-  $("#lgNum").innerHTML = `<option value="">번호를 골라요</option>` + rosterNums().map(n => {
-    const f = bookByNum(n, ACTIVE); return `<option value="${n}">${n}번${f ? " · " + esc(f[1].author) : ""}</option>`;
-  }).join("");
-  $("#login h3").textContent = `내 책 열기 · ${themeName(ACTIVE)}`;
-  lgNumChanged(); openDlg(d);
+  const start = THEMES.some(t => t.id === S.viewTheme) ? S.viewTheme : ACTIVE;
+  $("#lgTh").innerHTML = THEMES.map(t => `<option value="${t.id}"${t.id === start ? " selected" : ""}>${esc(t.name)}${t.id === ACTIVE ? " (기본)" : ""}</option>`).join("");
+  $("#lgThF").style.display = THEMES.length > 1 ? "" : "none";
+  lgThChanged(); openDlg(d);
 }
+const lgTheme = () => $("#lgTh").value || ACTIVE;
+function lgThChanged(){
+  const th = lgTheme(), keep = $("#lgNum").value;
+  $("#lgNum").innerHTML = `<option value="">번호를 골라요</option>` + rosterNums().map(n => {
+    const f = bookByNum(n, th); return `<option value="${n}">${n}번${f ? " · " + esc(f[1].author) : ""}</option>`;
+  }).join("");
+  $("#lgNum").value = keep;
+  $("#login h3").textContent = `내 책 열기 · ${themeName(th)}`;
+  lgNumChanged();
+}
+$("#lgTh").onchange = lgThChanged;
 function lgNumChanged(){
-  const n = $("#lgNum").value, f = n && bookByNum(n, ACTIVE), who = $("#lgWho");
+  const n = $("#lgNum").value, f = n && bookByNum(n, lgTheme()), who = $("#lgWho");
   $("#lgNameF").style.display = f ? "none" : "";
   who.style.display = f ? "" : "none";
-  if (f) who.textContent = `${n}번 ${f[1].author}의 책이에요. 비밀번호를 적어 주세요.`;
+  if (f) who.textContent = `${n}번 ${f[1].author}의 '${themeName(lgTheme())}' 책이에요. 비밀번호를 적어 주세요.`;
   $("#lgErr").textContent = "";
 }
 $("#lgNum").onchange = lgNumChanged;
@@ -581,7 +592,7 @@ $("#lgGo").onclick = async () => {
   err.textContent = "확인하고 있어요…";
   try {
     S.shelf = await api("GET","shelf") || {};
-    const found = bookByNum(num, ACTIVE);
+    const th = lgTheme(), found = bookByNum(num, th);
     if (!found && !name){ err.textContent = "이름을 적어 주세요."; return; }
     if (found){
       const book = await api("GET", `books/${found[0]}`);
@@ -591,11 +602,11 @@ $("#lgGo").onclick = async () => {
     } else {
       err.textContent = "";
       closeDlg($("#login"));
-      const yes = await ask({ title:"새 책 만들기", text:`${num}번 ${name}\n새 책을 만들까요? 비밀번호 ${pin}을 꼭 기억해 두세요.`, ok:"새 책 만들기" });
+      const yes = await ask({ title:"새 책 만들기", text:`'${themeName(th)}' 책장 · ${num}번 ${name}\n새 책을 만들까요? 비밀번호 ${pin}을 꼭 기억해 두세요.`, ok:"새 책 만들기" });
       if (!yes){ openDlg($("#login")); return; }
-      const id = uid(), book = newBook(name, pin, num, ACTIVE);
+      const id = uid(), book = newBook(name, pin, num, th);
       await api("PUT", `books/${id}`, book);
-      await api("PUT", `shelf/${id}`, { title:book.title, author:name, num, theme:ACTIVE, pages:book.pages.length, written:0, updated:Date.now() });
+      await api("PUT", `shelf/${id}`, { title:book.title, author:name, num, theme:th, pages:book.pages.length, written:0, updated:Date.now() });
       openEditor(id, book);
     }
   } catch(e){
@@ -652,7 +663,7 @@ function renderEditor(){
       `<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}</button>`).join("")}
   </div>
   <div class="panel" id="panel"></div><div style="height:40px"></div>`;
-  $("#back").onclick = async () => { await flushSave(); showShelf(); };
+  $("#back").onclick = async () => { await flushSave(); S.viewTheme = themeOf(S.book); showShelf(); };
   $("#read").onclick = async () => { await flushSave(); openReader(S.id); };
   $("#fin").onclick = toggleDone;
   document.querySelectorAll(".tab").forEach(t => t.onclick = () => { S.tab = t.dataset.tab; renderEditor(); });

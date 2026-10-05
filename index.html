@@ -84,6 +84,10 @@ button{cursor:pointer;border:0;background:none}
 .note small{display:block;margin-top:6px;font-size:14px;color:var(--ink-soft)}
 .note.ok{background:#FDE8E4;border-color:var(--coral)}
 .note.redo{background:#FFF6D8;border-color:var(--sun)}
+.follow ul{margin:8px 0 0;padding-left:20px}
+.follow li{margin:3px 0}
+.follow a{color:var(--ink);font-weight:bold}
+.stage .fixed{position:absolute;left:12px;top:12px;z-index:5;background:var(--sun);color:var(--ink);font-family:var(--display);padding:4px 12px;border-radius:999px;font-size:16px;box-shadow:0 1px 4px rgba(0,0,0,.2)}
 .quick{display:flex;flex-wrap:wrap;gap:6px;margin:-4px 0 6px}
 .quick button{padding:5px 11px;border-radius:999px;border:1.5px solid var(--line);background:#fff;font-size:14px}
 .btn.fin-on{background:#E3F4EC;color:var(--leaf);border:2px solid var(--leaf)}
@@ -391,7 +395,7 @@ const isExample = b => b && b.num != null && b.num !== "" && +b.num === 0;   // 
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(toast.t); toast.t=setTimeout(()=>t.classList.remove("on"),2200); }
 function normalize(b){
   const pages = (Array.isArray(b.pages) ? b.pages : Object.values(b.pages || {})).filter(Boolean)
-    .map(p => ({ pid:p.pid || uid(), text:p.text || "", layout:p.layout || "side", hasImg:!!p.hasImg }));
+    .map(p => ({ pid:p.pid || uid(), text:p.text || "", layout:p.layout || "side", hasImg:!!p.hasImg, ed:p.ed || 0 }));
   return { ...b, title:b.title || "", pages };
 }
 function newBook(name, pin, num, theme){
@@ -494,7 +498,7 @@ async function showShelf(){
         const [id,b] = f, w = b.written || 0;
         if (b.rev === "ok") return `<button class="nb ok" data-id="${id}"><b>${n}</b><span>${esc(b.author)}</span><span>★ 통과</span></button>`;
         if (b.done) return `<button class="nb fin" data-id="${id}"><b>${n}</b><span>${esc(b.author)}</span><span>✓ ${b.rev === "redo" ? "다시 냄" : "완료"}</span></button>`;
-        if (b.rev === "redo") return `<button class="nb redo" data-id="${id}"><b>${n}</b><span>${esc(b.author)}</span><span>고치는 중</span></button>`;
+        if (b.rev === "redo") return `<button class="nb redo" data-id="${id}"><b>${n}</b><span>${esc(b.author)}</span><span>${b.revSeen ? "고치는 중" : "안 읽음"}</span></button>`;
         return `<button class="nb ${w ? "done" : "start"}" data-id="${id}"><b>${n}</b><span>${esc(b.author)}</span><span>글 ${w} / ${b.pages||0}쪽</span></button>`;
       }).join("")}</div>
     </section>`;
@@ -659,12 +663,13 @@ function setStatus(s){
   el.className = "status" + (s==="error" ? " err" : "");
   el.textContent = { saving:"저장 중…", saved:"저장됨", error:"저장 안 됨 — 인터넷을 확인하세요" }[s];
 }
+function touch(p){ if (S.teacher) return; const t = Date.now(); if (p) p.ed = t; else S.book.cvEd = t; }
 function queueSave(){ pending = true; setStatus("saving"); clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 700); }
 async function flushSave(){
   clearTimeout(saveTimer); if (!pending || !S.book) return;
   pending = false; const b = S.book, now = Date.now();
   try {
-    await api("PATCH", `books/${S.id}`, { title:b.title, pages:b.pages, updated:now });
+    await api("PATCH", `books/${S.id}`, { title:b.title, pages:b.pages, updated:now, cvEd:b.cvEd || 0, delAt:b.delAt || 0 });
     await api("PATCH", `shelf/${S.id}`, { title:b.title, author:b.author, pages:b.pages.length, written:b.pages.filter(p => p.text.trim()).length, updated:now });
     setStatus("saved");
   } catch(e){ pending = true; setStatus("error"); }
@@ -678,6 +683,10 @@ async function openEditor(id, book){
   S.view="edit"; S.id=id; S.book=normalize(book); S.tab="pages"; S.page=0;
   $("#app").innerHTML = `<div class="wrap"><p class="empty">책을 펼치고 있어요…</p></div>`;
   try { S.imgs = await api("GET", `imgs/${id}`) || {}; } catch(e){ S.imgs = {}; }
+  if (!S.teacher && S.book.rev === "redo" && !S.book.revSeen){
+    const seen = { revSeen:Date.now() }; Object.assign(S.book, seen);
+    api("PATCH", `books/${id}`, seen).catch(()=>{}); api("PATCH", `shelf/${id}`, seen).catch(()=>{});
+  }
   renderEditor();
 }
 function renderEditor(){
@@ -718,6 +727,8 @@ function openReview(id, b){
   return new Promise(res => {
     const d = $("#rev"), msg = $("#revMsg"), err = $("#revErr");
     $("#revInfo").textContent = `${b.num ? b.num + "번 " : ""}${b.author} · ${b.title || "제목 없는 책"} · ${b.done ? "완료함" : "아직 완료 안 함"}`;
+    if (b.rev === "redo"){ const ch = changedSince(b);
+      $("#revInfo").textContent += ` · ${b.revSeen ? "피드백 읽음" : "피드백 안 읽음"} · 고친 곳 ${ch.length ? ch.join(", ") : "없음"}`; }
     msg.value = b.revMsg || ""; err.textContent = "";
     $("#revQuick").innerHTML = QUICK.map(q => `<button type="button">${q}</button>`).join("");
     $("#revQuick").querySelectorAll("button").forEach(q => q.onclick = () => {
@@ -731,20 +742,41 @@ function openReview(id, b){
         closeDlg(d); res(true);
       } catch(e){ err.textContent = "저장하지 못했어요. 인터넷을 확인하세요."; }
     };
-    $("#revOk").onclick = () => save({ rev:"ok", revMsg:msg.value.trim(), revAt:Date.now() });
+    $("#revOk").onclick = () => save({ rev:"ok", revMsg:msg.value.trim(), revAt:Date.now(), revSeen:null, revReply:null });
     $("#revRedo").onclick = () => {
       if (!msg.value.trim()){ err.textContent = "더 해 볼 것을 적어 주세요. (아래 단추를 눌러도 돼요)"; return; }
-      save({ rev:"redo", revMsg:msg.value.trim(), revAt:Date.now(), done:false, doneAt:null });
+      save({ rev:"redo", revMsg:msg.value.trim(), revAt:Date.now(), revSeen:null, revReply:null, done:false, doneAt:null });
     };
-    $("#revClear").onclick = () => save({ rev:null, revMsg:"", revAt:null });
+    $("#revClear").onclick = () => save({ rev:null, revMsg:"", revAt:null, revSeen:null, revReply:null });
     $("#revNo").onclick = () => { closeDlg(d); res(false); };
     d.oncancel = e => { e.preventDefault(); closeDlg(d); res(false); };
     openDlg(d);
   });
 }
+function changedSince(b){
+  const t = b.revAt || 0, out = [];
+  if ((b.cvEd || 0) > t) out.push("표지");
+  b.pages.forEach((p,i) => { if ((p.ed || 0) > t) out.push(`${i+1}쪽`); });
+  if ((b.delAt || 0) > t) out.push("쪽 지움");
+  return out;
+}
+const when = t => { const d = new Date(t), h = d.getHours();
+  return `${d.getMonth()+1}월 ${d.getDate()}일 ${h < 12 ? "오전" : "오후"} ${h % 12 || 12}:${String(d.getMinutes()).padStart(2,"0")}`; };
+function followHTML(b){
+  if (b.rev !== "redo") return "";
+  const ch = changedSince(b);
+  return `<div class="note redo follow">
+    <b>더 해 보기를 보낸 뒤 (${when(b.revAt)})</b>
+    <p>선생님 말: ${esc(b.revMsg)}</p>
+    <ul>
+      <li>${b.revSeen ? `✓ 읽었어요 (${when(b.revSeen)})` : "✗ 아직 책을 열어 보지 않았어요"}</li>
+      <li>${ch.length ? `고친 곳: ${ch.map(c => /쪽$/.test(c) ? `<a href="#" data-go="${parseInt(c)}">${c}</a>` : c === "표지" ? `<a href="#" data-go="0">표지</a>` : c).join(", ")}` : "고친 곳이 아직 없어요"}</li>
+      <li>${b.done ? `✓ 다시 냈어요 (${when(b.doneAt)})${b.revReply ? ` — “${esc(b.revReply)}”` : ""}` : "아직 다시 내지 않았어요"}</li>
+    </ul></div>`;
+}
 const revText = b => b.rev === "ok" ? '<b style="color:var(--coral)">★ 통과</b>'
   : b.done ? `<b style="color:var(--leaf)">✓ ${b.rev === "redo" ? "다시 냄" : "완료"}</b>`
-  : b.rev === "redo" ? "더 해 보는 중" : "아직 만드는 중";
+  : b.rev === "redo" ? (b.revSeen ? "고치는 중" : "피드백 안 읽음") : "아직 만드는 중";
 
 /* ---------- 완료 버튼 ---------- */
 async function toggleDone(){
@@ -767,11 +799,21 @@ async function toggleDone(){
     ? `아직 빈 곳이 있어요.\n${miss.join("\n")}\n\n그래도 완료할까요?`
     : `모두 ${b.pages.length}쪽, 글과 그림이 다 들어 있어요.\n완료하면 선생님께 다 만들었다고 알려져요.\n완료한 뒤에도 고칠 수 있어요.`;
   if (!await ask({ title:"책을 다 만들었나요?", text, ok: miss.length ? "그래도 완료" : "완료하기", cancel:"더 고칠래요" })) return;
-  if (await setDone(true)) toast("완료! 멋진 그림책이 완성됐어요 🎉");
+  let reply = null;
+  if (b.rev === "redo"){
+    const changed = changedSince(b);
+    reply = await ask({ title:"무엇을 고쳤나요?",
+      text:`선생님 말: ${b.revMsg}\n\n${changed.length ? `내가 고친 곳: ${changed.join(", ")}` : "아직 고친 곳이 없어요!"}\n선생님께 무엇을 고쳤는지 알려 주세요.`,
+      input:{ placeholder:"예: 3쪽과 5쪽에 그림을 더 그렸어요" }, ok:"선생님께 내기", cancel:"더 고칠래요" });
+    if (reply === false) return;
+    if (!reply.trim()){ toast("무엇을 고쳤는지 한 줄 써 주세요"); return; }
+  }
+  if (await setDone(true, reply)) toast(b.rev === "redo" ? "다시 냈어요! 선생님 확인을 기다려요" : "완료! 멋진 그림책이 완성됐어요 🎉");
 }
-async function setDone(v){
+async function setDone(v, reply){
   await flushSave();
   const data = { done:v, doneAt: v ? Date.now() : null };
+  if (reply) data.revReply = reply.trim().slice(0, 100);
   try {
     await api("PATCH", `books/${S.id}`, data);
     await api("PATCH", `shelf/${S.id}`, data);
@@ -812,9 +854,9 @@ function renderPages(){
   const prev = () => { $("#prev").innerHTML = pageHTML(p, S.imgs[p.pid], S.page+1, true); fitText($("#prev")); };
   fitText($("#prev"));
   document.querySelectorAll(".chip[data-p]").forEach(c => c.onclick = () => { S.page = +c.dataset.p; renderPages(); });
-  $("#addPg").onclick = () => { b.pages.push({ pid:uid(), text:"", layout:"side", hasImg:false }); S.page = b.pages.length-1; queueSave(); renderPages(); };
-  $("#pgText").oninput = e => { p.text = e.target.value; queueSave(); prev(); $("#guideBox").innerHTML = guideHTML(p); };
-  document.querySelectorAll("[data-lay]").forEach(x => x.onclick = () => { p.layout = x.dataset.lay; queueSave(); renderPages(); });
+  $("#addPg").onclick = () => { b.pages.push({ pid:uid(), text:"", layout:"side", hasImg:false, ed:S.teacher ? 0 : Date.now() }); S.page = b.pages.length-1; queueSave(); renderPages(); };
+  $("#pgText").oninput = e => { p.text = e.target.value; touch(p); queueSave(); prev(); $("#guideBox").innerHTML = guideHTML(p); };
+  document.querySelectorAll("[data-lay]").forEach(x => x.onclick = () => { p.layout = x.dataset.lay; touch(p); queueSave(); renderPages(); });
   if ($("#pickImg")){
     const pick = () => { $("#pgFile").value = ""; $("#pgFile").click(); };
     $("#pickImg").onclick = pick;
@@ -826,18 +868,18 @@ function renderPages(){
     try {
       const data = await shrink(URL.createObjectURL(f), 1000, 0.8);
       await api("PUT", `imgs/${S.id}/${p.pid}`, data);
-      S.imgs[p.pid] = data; p.hasImg = true; queueSave(); refreshThumb(); renderPages(); toast("그림을 넣었어요");
+      S.imgs[p.pid] = data; p.hasImg = true; touch(p); queueSave(); refreshThumb(); renderPages(); toast("그림을 넣었어요");
     } catch(err){ toast("그림을 올리지 못했어요. 다시 해 보세요"); }
   };
   if ($("#rmImg")) $("#rmImg").onclick = async () => {
     if (!await ask({ title:"그림 빼기", text:"이 쪽 그림을 뺄까요?", ok:"빼기", danger:true })) return;
     try { await api("DELETE", `imgs/${S.id}/${p.pid}`); } catch(e){}
-    delete S.imgs[p.pid]; p.hasImg = false; queueSave(); refreshThumb(); renderPages();
+    delete S.imgs[p.pid]; p.hasImg = false; touch(p); queueSave(); refreshThumb(); renderPages();
   };
   $("#delPg").onclick = async () => {
     if (b.pages.length <= 1){ toast("책에는 적어도 한 쪽이 있어야 해요"); return; }
     if (!await ask({ title:`${S.page+1}쪽 지우기`, text:"글과 그림이 함께 사라져요.", ok:"지우기", danger:true })) return;
-    const [x] = b.pages.splice(S.page,1);
+    const [x] = b.pages.splice(S.page,1); if (!S.teacher) b.delAt = Date.now();
     if (S.imgs[x.pid]){ delete S.imgs[x.pid]; try { await api("DELETE", `imgs/${S.id}/${x.pid}`); } catch(e){} refreshThumb(); }
     queueSave(); renderPages();
   };
@@ -859,17 +901,17 @@ function renderCover(){
       </div>
       <div><div class="field"><span>미리보기</span><div class="mini" id="cvPrev">${coverHTML(b, S.id, coverImg())}</div></div></div>
     </div>`;
-  $("#ttl").oninput = e => { b.title = e.target.value; queueSave(); $("#cvPrev").innerHTML = coverHTML(b, S.id, coverImg()); document.querySelector(".bar h2").textContent = b.title || "제목 없는 책"; };
+  $("#ttl").oninput = e => { b.title = e.target.value; touch(); queueSave(); $("#cvPrev").innerHTML = coverHTML(b, S.id, coverImg()); document.querySelector(".bar h2").textContent = b.title || "제목 없는 책"; };
   $("#cvPick").onclick = () => { $("#cvFile").value = ""; $("#cvFile").click(); };
   $("#cvFile").onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     try { const data = await shrink(URL.createObjectURL(f), 1000, 0.8);
-      await api("PUT", `imgs/${S.id}/cover`, data); S.imgs.cover = data; refreshThumb(); renderCover(); toast("표지를 넣었어요"); }
+      await api("PUT", `imgs/${S.id}/cover`, data); S.imgs.cover = data; touch(); pending = true; flushSave(); refreshThumb(); renderCover(); toast("표지를 넣었어요"); }
     catch(err){ toast("그림을 올리지 못했어요. 다시 해 보세요"); }
   };
   if ($("#cvRm")) $("#cvRm").onclick = async () => {
     try { await api("DELETE", `imgs/${S.id}/cover`); } catch(e){}
-    delete S.imgs.cover; refreshThumb(); renderCover();
+    delete S.imgs.cover; touch(); pending = true; flushSave(); refreshThumb(); renderCover();
   };
 }
 
@@ -1025,6 +1067,7 @@ async function openReader(id){
       <button class="btn sun small" id="tPdf">PDF 받기</button>
       <button class="btn danger small" id="tDel">책 지우기</button>` : ""}
   </div></div>
+  ${S.teacher ? `<div style="height:14px"></div><div id="follow">${followHTML(b)}</div>` : ""}
   <div class="reader">
     <div class="stage" id="stage"><div class="sheet" id="under"></div><div class="sheet leaf" id="leaf"></div></div>
     <div class="nav">
@@ -1065,8 +1108,11 @@ async function openReader(id){
   $("#back").onclick = showShelf;
   if (S.teacher){
     $("#tEdit").onclick = () => openEditor(id, b);
+    const wireFollow = () => { $("#follow").innerHTML = followHTML(b);
+      document.querySelectorAll("[data-go]").forEach(a => a.onclick = e => { e.preventDefault(); showSlide(+a.dataset.go); }); };
+    wireFollow();
     if ($("#tRev")) $("#tRev").onclick = async () => {
-      if (await openReview(id, b)){ $("#tSt").innerHTML = revText(b);
+      if (await openReview(id, b)){ $("#tSt").innerHTML = revText(b); wireFollow(); showSlide(S.idx);
         toast(b.rev === "ok" ? "통과로 표시했어요" : b.rev === "redo" ? "학생에게 더 해 볼 것을 남겼어요" : "확인을 지웠어요"); }
     };
     $("#tNum").onclick = async () => {
@@ -1121,6 +1167,9 @@ function slideHTML(i){
 }
 function showSlide(i){
   S.idx = i; $("#under").innerHTML = slideHTML(i); fitText($("#under"));
+  const bk = S.book, t = bk.revAt || 0;
+  if (S.teacher && bk.rev === "redo" && i <= bk.pages.length && ((i === 0 ? bk.cvEd : bk.pages[i-1].ed) || 0) > t)
+    $("#under").insertAdjacentHTML("beforeend", `<span class="fixed">고친 ${i === 0 ? "표지" : "쪽"}</span>`);
   const n = S.book.pages.length;
   $("#cnt").textContent = i===0 ? "표지" : i===n+1 ? "끝" : `${i} / ${n}`;
   $("#pv").disabled = i===0; $("#nx").disabled = i===slideCount()-1;

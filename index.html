@@ -326,7 +326,7 @@ async function api(method, path, body){
   const ref = col.doc(id);
   if (method === "GET"){ const d = await ref.get(); return d.exists ? d.data() : null; }
   if (method === "PUT") return ref.set(body);
-  if (method === "PATCH") return ref.set(body, { merge:true });
+  if (method === "PATCH") return id === "_settings" ? ref.set(body, { merge:true }) : ref.update(body);
   if (method === "DELETE") return ref.delete();
 }
 let MEM = null;
@@ -343,7 +343,10 @@ function demoApi(method, path, body){
   }
   if (method === "GET") return JSON.parse(JSON.stringify(last ? node[last] ?? null : node));
   if (method === "PUT") node[last] = body;
-  if (method === "PATCH") node[last] = Object.assign(node[last] || {}, body);
+  if (method === "PATCH"){
+    if (!node[last] && last !== "_settings"){ const e = new Error("not-found"); e.code = "not-found"; throw e; }
+    node[last] = Object.assign(node[last] || {}, body);
+  }
   if (method === "DELETE") delete node[last];
   if (!MEM){ try { localStorage.setItem("csb-demo", JSON.stringify(tree)); } catch(e){ MEM = tree; } }
   return body ?? null;
@@ -464,6 +467,7 @@ async function showShelf(){
   $("#app").innerHTML = `<div class="wrap"><p class="empty">책장을 불러오고 있어요…</p></div>`;
   try { S.shelf = await api("GET", "shelf") || {}; await loadRoster(); }
   catch(e){ S.shelf = {}; toast("책장을 불러오지 못했어요. 인터넷 연결을 확인하세요."); }
+  if (!S.teacher) for (const k in S.shelf) if (!S.shelf[k].author) delete S.shelf[k];
   const vt = S.viewTheme;
   const ex = Object.entries(S.shelf).find(([,b]) => isExample(b) && themeOf(b) === vt);
   const list = Object.entries(S.shelf).filter(([,b]) => !isExample(b) && themeOf(b) === vt).sort((a,b) =>
@@ -529,7 +533,7 @@ async function showShelf(){
           ${b.thumb ? `<img src="${b.thumb}" alt="">` : ""}
           ${b.num ? `<span class="num">${b.num}번</span>` : ""}
           ${b.rev === "ok" ? `<span class="fin ok">★ 통과</span>` : b.done ? `<span class="fin">✓ 완료</span>` : ""}
-          <div class="ct">${esc(b.title || "제목 없는 책")}<small>${esc(b.author)}</small></div>
+          <div class="ct">${b.author ? `${esc(b.title || "제목 없는 책")}<small>${esc(b.author)}</small>` : `빈 표지<small>눌러서 정리해요</small>`}</div>
         </div>
       </button>`).join("")}</div>`
     : `<div class="shelf" style="display:block;padding:30px"><p class="empty" style="margin:0">아직 꽂힌 책이 없어요. 첫 번째 책을 써 보세요.</p></div>`}
@@ -633,10 +637,14 @@ $("#lgGo").onclick = async () => {
     const th = lgTheme(), found = bookByNum(num, th);
     if (!found && !name){ err.textContent = "이름을 적어 주세요."; return; }
     if (found){
-      const book = await api("GET", `books/${found[0]}`);
-      if (!book){ err.textContent = "책을 찾지 못했어요. 선생님께 말해 주세요."; return; }
+      // 같은 번호 칸이 여러 개면(빈 표지가 섞였을 때) 내용이 있는 책을 찾아 열어요
+      const same = Object.entries(S.shelf).filter(([,x]) => x.num != null && +x.num === +num && themeOf(x) === th);
+      let hit = null;
+      for (const [bid] of same){ const bk = await api("GET", `books/${bid}`); if (bk){ hit = [bid, bk]; break; } }
+      if (!hit){ err.textContent = "책을 찾지 못했어요. 선생님께 말해 주세요."; return; }
+      const [bid, book] = hit;
       if (book.pin !== pin && pin !== CONFIG.TEACHER_PIN){ err.textContent = "비밀번호가 달라요. 기억나지 않으면 선생님께 말해 주세요."; return; }
-      closeDlg($("#login")); openEditor(found[0], book);
+      closeDlg($("#login")); openEditor(bid, book);
     } else {
       err.textContent = "";
       closeDlg($("#login"));
@@ -672,7 +680,10 @@ async function flushSave(){
     await api("PATCH", `books/${S.id}`, { title:b.title, pages:b.pages, updated:now, cvEd:b.cvEd || 0, delAt:b.delAt || 0 });
     await api("PATCH", `shelf/${S.id}`, { title:b.title, author:b.author, pages:b.pages.length, written:b.pages.filter(p => p.text.trim()).length, updated:now });
     setStatus("saved");
-  } catch(e){ pending = true; setStatus("error"); }
+  } catch(e){
+    if (e && e.code === "not-found"){ pending = false; S.book = null; toast("이 책은 지워졌어요. 선생님께 말씀해 주세요"); showShelf(); return; }
+    pending = true; setStatus("error");
+  }
 }
 async function refreshThumb(){
   const src = coverImg();
@@ -1047,12 +1058,22 @@ async function exportPDF(items, filename){
 /* ============================================================
    넘기는 그림책 보기
    ============================================================ */
+async function cleanOrphan(id){
+  if (!S.teacher){ toast("이 책은 내용이 없어요. 선생님께 말씀해 주세요"); showShelf(); return; }
+  const sb = S.shelf[id] || {};
+  const yes = await ask({ title:"빈 표지 정리", text:`${sb.author ? `${sb.num ? sb.num + "번 " : ""}${sb.author}의 표지인데 책 내용이 없어요.` : "이 표지에는 책 내용이 없어요."}\n(저장이 중간에 끊겼을 때 생길 수 있어요)\n책장에서 이 빈 표지를 지울까요?\n같은 학생의 진짜 책은 그대로 남아요.`, ok:"빈 표지 지우기", danger:true });
+  if (yes){
+    try { await api("DELETE", `shelf/${id}`); await api("DELETE", `imgs/${id}`); await api("DELETE", `comments/${id}`); toast("빈 표지를 지웠어요"); }
+    catch(e){ toast("지우지 못했어요. 인터넷을 확인하세요"); }
+  }
+  showShelf();
+}
 async function openReader(id){
   S.view="read"; S.idx=0;
   $("#app").innerHTML = `<div class="wrap"><p class="empty">책을 펼치고 있어요…</p></div>`;
   try {
     const [book, imgs] = await Promise.all([api("GET",`books/${id}`), api("GET",`imgs/${id}`)]);
-    if (!book){ toast("책을 찾지 못했어요"); showShelf(); return; }
+    if (!book){ await cleanOrphan(id); return; }
     S.id=id; S.book=normalize(book); S.imgs=imgs||{}; S.isExample = isExample(book);
   } catch(e){ toast("책을 불러오지 못했어요. 인터넷을 확인하세요"); showShelf(); return; }
   const b = S.book;
@@ -1131,7 +1152,7 @@ async function openReader(id){
     $("#tPdf").onclick = () => exportPDF([[id, b, S.imgs]], pdfName(b));
     $("#tDel").onclick = async () => {
       if (!await ask({ title:"책 지우기", text:`'${b.title}' (${b.author})\n지우면 되돌릴 수 없어요.`, ok:"지우기", danger:true })) return;
-      try { await api("DELETE",`imgs/${id}`); await api("DELETE",`comments/${id}`); await api("DELETE",`books/${id}`); await api("DELETE",`shelf/${id}`); toast("책을 지웠어요"); showShelf(); }
+      try { await api("DELETE",`shelf/${id}`); await api("DELETE",`books/${id}`); await api("DELETE",`imgs/${id}`); await api("DELETE",`comments/${id}`); toast("책을 지웠어요"); showShelf(); }
       catch(e){ toast("지우지 못했어요. 다시 해 보세요"); }
     };
   }

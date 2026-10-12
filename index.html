@@ -77,6 +77,10 @@ button{cursor:pointer;border:0;background:none}
 .nb.ok{border:2px solid var(--coral);background:var(--coral);color:#fff}
 .nb.ok b{color:#fff}
 .nb.redo{border:2px solid var(--coral);background:#FDE8E4;color:var(--ink)}
+.nb.cm0{border:2px dashed var(--coral);background:#fff;color:var(--ink)}
+.nb.cm{border:2px solid var(--leaf);background:#E3F4EC;color:var(--ink)}
+.nb.cm.many{background:var(--leaf);color:#fff}.nb.cm.many b{color:#fff}
+.miss{margin:12px 0 0;font-size:15px;color:var(--ink-soft)}
 .cover .fin.ok{background:var(--coral)}
 .note{max-width:1060px;margin:0 20px 14px;border-radius:14px;padding:14px 18px;font-size:17px;border:2px solid}
 .note b{font-family:var(--display);font-weight:400;font-size:20px;display:block;margin-bottom:2px}
@@ -237,7 +241,7 @@ dialog .err{color:var(--coral);font-size:15px;min-height:22px;margin:6px 0}
 </dialog>
 <dialog id="ask">
   <h3 id="askT"></h3>
-  <p id="askP" style="margin:0 0 12px;white-space:pre-wrap"></p>
+  <p id="askP" style="margin:0 0 12px;white-space:pre-wrap;max-height:55vh;overflow:auto"></p>
   <input type="text" id="askIn" style="display:none;margin-bottom:12px">
   <textarea id="askTa" rows="5" readonly style="display:none;margin-bottom:12px"></textarea>
   <div class="row" style="justify-content:flex-end">
@@ -297,6 +301,7 @@ async function api(method, path, body){
   const [kind, id, key] = path.split("/");
   if (kind === "comments"){
     const col = DB.collection(COL.comments);
+    if (!id && method === "GET"){ const snap = await col.get(); const out = {}; snap.forEach(d => out[d.id] = d.data()); return out; }
     if (method === "GET"){
       const snap = await col.where("book","==",id).get(); const out = {};
       snap.forEach(d => out[d.id.split("__")[1]] = d.data()); return out;
@@ -350,6 +355,12 @@ function demoApi(method, path, body){
   if (method === "DELETE") delete node[last];
   if (!MEM){ try { localStorage.setItem("csb-demo", JSON.stringify(tree)); } catch(e){ MEM = tree; } }
   return body ?? null;
+}
+
+async function allComments(){
+  const r = await api("GET", "comments") || {};
+  if (!DEMO) return Object.values(r);
+  const out = []; for (const b in r) for (const c in r[b]) out.push({ ...r[b][c], book:b }); return out;
 }
 
 /* ---------- 창 도우미 (prompt/confirm은 막히는 곳이 많아서 쓰지 않아요) ---------- */
@@ -476,6 +487,33 @@ async function showShelf(){
   const made = nums.filter(n => bookByNum(n, vt)).length;
   const fin = nums.filter(n => { const f = bookByNum(n, vt); return f && (f[1].done || f[1].rev === "ok"); }).length;
   const okN = nums.filter(n => { const f = bookByNum(n, vt); return f && f[1].rev === "ok"; }).length;
+  // 감상평 쓴 친구 (선생님 모드): 이 책장의 책에 남긴 감상평을 번호별로 세요
+  let cmHTML = "", cmBy = {};
+  if (S.teacher){
+    let all = [];
+    try { all = await allComments(); } catch(e){ all = null; }
+    const inTheme = new Set(Object.entries(S.shelf).filter(([,b]) => !isExample(b) && themeOf(b) === vt).map(([id]) => id));
+    (all || []).filter(c => inTheme.has(c.book)).forEach(c => (cmBy[+c.num] = cmBy[+c.num] || []).push(c));
+    const total = Object.values(cmBy).reduce((a,l) => a + l.length, 0);
+    const wrote = nums.filter(n => cmBy[n]).length, none = nums.filter(n => !cmBy[n]);
+    const nameOf = n => { const f = bookByNum(n, vt) || bookByNum(n); return f ? f[1].author : (cmBy[n] && cmBy[n][0].name) || ""; };
+    cmHTML = all == null ? `<section class="check"><h3>감상평 쓴 친구</h3><p class="miss">감상평을 불러오지 못했어요. 인터넷을 확인하세요.</p></section>` : `
+    <section class="check">
+      <div class="top">
+        <h3>${esc(themeName(vt))} · 감상평 쓴 친구 <span style="font-size:16px;color:var(--ink-soft)">쓴 사람 <b style="color:var(--leaf)">${wrote}</b> / ${nums.length} · 모두 ${total}개</span></h3>
+      </div>
+      <div class="legend" style="margin-bottom:10px">
+        <span><i style="border:2px dashed var(--coral)"></i>아직 안 씀</span>
+        <span><i style="background:#E3F4EC;border:2px solid var(--leaf)"></i>1~2개</span>
+        <span><i style="background:var(--leaf)"></i>3개 이상</span>
+        <span>번호를 누르면 어느 책에 썼는지 보여요</span>
+      </div>
+      <div class="nums">${nums.map(n => { const k = (cmBy[n] || []).length;
+        return `<button class="nb ${k ? "cm" + (k >= 3 ? " many" : "") : "cm0"}" data-cm="${n}"><b>${n}</b><span>${esc(nameOf(n)) || "&nbsp;"}</span><span>${k ? `${k}개` : "안 씀"}</span></button>`; }).join("")}</div>
+      <p class="miss">${none.length ? `아직 안 쓴 친구: ${none.map(n => `${n}번${nameOf(n) ? " " + esc(nameOf(n)) : ""}`).join(", ")}` : "모두 감상평을 썼어요! 🎉"}</p>
+    </section>`;
+    S.cmBy = cmBy; S.cmName = nameOf;
+  }
   const checkHTML = !S.teacher ? "" : `
     <section class="check">
       <div class="top">
@@ -516,6 +554,7 @@ async function showShelf(){
     ${THEMES.length > 1 || S.teacher ? `<div class="themes">${THEMES.map(t =>
       `<button class="th" data-th="${t.id}" aria-pressed="${t.id === vt}">${esc(t.name)}${t.id === ACTIVE && S.teacher ? "<em>기본</em>" : ""}</button>`).join("")}</div>` : ""}
     ${checkHTML}
+    ${cmHTML}
     ${ex ? `<section class="example">
       <div class="cover" style="--c:${colorOf(ex[0])}">
         ${ex[1].thumb ? `<img src="${ex[1].thumb}" alt="">` : ""}
@@ -586,6 +625,16 @@ async function showShelf(){
     if (!await ask({ title:"기본 책장으로 정하기", text:`'${themeName(vt)}'을(를) 기본 책장으로 정할까요?\n학생이 로그인할 때 이 책장이 먼저 골라져 있어요.`, ok:"정하기" })) return;
     try { await saveSettings({ themes:THEMES, active:vt }); toast("바꿨어요"); showShelf(); } catch(e){ toast("바꾸지 못했어요"); }
   };
+  document.querySelectorAll("[data-cm]").forEach(x => x.onclick = () => {
+    const n = +x.dataset.cm, mine = (S.cmBy[n] || []).slice().sort((a,b) => (a.created||0) - (b.created||0));
+    const title = id => { const b = S.shelf[id] || {}; return `${b.num ? b.num + "번 " : ""}${b.author || ""} '${b.title || "제목 없는 책"}'`; };
+    const doneIds = new Set(mine.map(c => c.book));
+    const left = list.filter(([id,b]) => !doneIds.has(id) && +b.num !== n).map(([id]) => "· " + title(id));
+    const wrote = mine.map(c => { const d = new Date(c.created || 0); return `· ${title(c.book)} (${d.getMonth()+1}/${d.getDate()})\n   “${c.text}”`; });
+    ask({ title:`${n}번 ${S.cmName(n)} · 감상평 ${mine.length}개`,
+      text:`${wrote.length ? `쓴 감상평\n${wrote.join("\n")}` : "아직 쓴 감상평이 없어요."}\n\n아직 안 쓴 책 (${left.length}권)\n${left.join("\n") || "· 없어요. 다 썼어요!"}`,
+      ok:"닫기", cancel:null });
+  });
   if ($("#setNums")) $("#setNums").onclick = async () => {
     const max = await ask({ title:"번호 설정", text:"마지막 번호를 적어 주세요.", input:{ mode:"numeric", value:String(ROSTER.max) }, ok:"다음" });
     if (max === false) return;
@@ -1096,8 +1145,10 @@ async function openReader(id){
       <span class="cnt" id="cnt"></span>
       <button class="arrow" id="nx" aria-label="다음 쪽">›</button>
     </div>
-    <section class="talk" id="talk" style="display:none">
-      <h3>다 읽었어요! 감상평을 남겨 주세요</h3>
+    <section class="talk" id="talk"${S.isExample ? ' style="display:none"' : ""}>
+      <h3 id="cmHead">친구들의 감상평</h3>
+      <p class="cnt2" id="cmHint" style="margin:-4px 0 0">끝까지 읽으면 나도 감상평을 남길 수 있어요.</p>
+      <div id="cmWrite" style="display:none">
       <div class="form">
         <select id="cmNum" aria-label="내 번호"></select>
         <textarea id="cmText" rows="2" maxlength="100" placeholder="예: 고양이가 말을 하는 장면이 재미있었어!"></textarea>
@@ -1105,6 +1156,7 @@ async function openReader(id){
       <div class="row" style="justify-content:space-between;margin-top:8px">
         <span class="cnt2" id="cmCnt">0 / 100자</span>
         <button class="btn sun small" id="cmGo">남기기</button>
+      </div>
       </div>
       <ul class="cms" id="cms"></ul>
     </section>
@@ -1194,7 +1246,12 @@ function showSlide(i){
   const n = S.book.pages.length;
   $("#cnt").textContent = i===0 ? "표지" : i===n+1 ? "끝" : `${i} / ${n}`;
   $("#pv").disabled = i===0; $("#nx").disabled = i===slideCount()-1;
-  if ($("#talk")) $("#talk").style.display = (i===slideCount()-1 && !S.isExample) ? "" : "none";
+  if ($("#cmWrite")){
+    const end = i === slideCount()-1;
+    $("#cmWrite").style.display = end ? "" : "none";
+    $("#cmHint").style.display = end ? "none" : "";
+    $("#cmHead").textContent = end ? "다 읽었어요! 감상평을 남겨 주세요" : "친구들의 감상평";
+  }
 }
 function turn(d){
   const to = S.idx + d;

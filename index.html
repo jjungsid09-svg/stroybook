@@ -572,7 +572,7 @@ const bookByNum = (n, th) => Object.entries(S.shelf).find(([,b]) => b.num != nul
 // 모둠 책장: 책장 설정에 groups(모둠마다 번호 목록)가 있으면 모둠 책장이에요
 const thObj = id => THEMES.find(t => t.id === id) || {};
 const isGroupTh = id => Array.isArray(thObj(id).groups);
-const groupsOf = id => thObj(id).groups || [];
+const groupsOf = id => (thObj(id).groups || []).map(g => Array.isArray(g) ? g : (g && Array.isArray(g.m) ? g.m : []));
 const groupOf = (n, th) => { const i = groupsOf(th).findIndex(g => g.map(Number).includes(+n)); return i < 0 ? 0 : i + 1; };
 // 번호를 아직 안 정한 모둠은, 다른 모둠에 들어가지 않은 번호를 모두 보여 줘요
 const membersOf = (g, th) => { const m = groupsOf(th)[g-1] || []; return m.length ? m : rosterNums().filter(n => !groupOf(n, th)); };
@@ -913,7 +913,7 @@ function editGroups(th){
       const dup = [...new Set(all.filter((n,i) => all.indexOf(n) !== i))], bad = [...new Set(all.filter(n => !nums.includes(n)))];
       if (dup.length){ err.textContent = `${dup.join(", ")}번이 두 모둠에 들어 있어요.`; return; }
       if (bad.length){ err.textContent = `${bad.join(", ")}번은 우리 반 번호에 없어요. (번호 설정을 확인하세요)`; return; }
-      const themes = THEMES.map(t => t.id === th ? { ...t, groups:g2 } : t);
+      const themes = THEMES.map(t => t.id === th ? { ...t, groups:g2.map(m => ({ m })) } : t);
       err.textContent = "저장하고 있어요…";
       try { await saveSettings({ themes, active:ACTIVE }); THEMES = themes; toast("모둠을 저장했어요"); done(true); }
       catch(e){ err.textContent = "저장하지 못했어요. 인터넷을 확인하세요."; }

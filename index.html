@@ -274,7 +274,7 @@ dialog .err{color:var(--coral);font-size:15px;min-height:22px;margin:6px 0}
 </dialog>
 <dialog id="grpDlg">
   <h3>모둠 정하기</h3>
-  <p style="margin:-6px 0 12px;font-size:15px;color:var(--ink-soft)">모둠마다 번호를 쉼표로 적어요. 예: 1, 5, 9, 13</p>
+  <p style="margin:-6px 0 12px;font-size:15px;color:var(--ink-soft)">모둠마다 번호를 쉼표로 적어요. 예: 1, 5, 9, 13<br>번호는 비워 두고 나중에 정해도 돼요. 그동안은 학생이 모든 번호 중에서 골라요.</p>
   <div class="row" style="margin-bottom:12px">
     <label style="display:flex;align-items:center;gap:8px;font-family:var(--display)">모둠 수 <select id="gdN" style="width:auto"></select></label>
     <button class="btn ghost small" id="gdAuto">번호순으로 나누기</button>
@@ -574,6 +574,8 @@ const thObj = id => THEMES.find(t => t.id === id) || {};
 const isGroupTh = id => Array.isArray(thObj(id).groups);
 const groupsOf = id => thObj(id).groups || [];
 const groupOf = (n, th) => { const i = groupsOf(th).findIndex(g => g.map(Number).includes(+n)); return i < 0 ? 0 : i + 1; };
+// 번호를 아직 안 정한 모둠은, 다른 모둠에 들어가지 않은 번호를 모두 보여 줘요
+const membersOf = (g, th) => { const m = groupsOf(th)[g-1] || []; return m.length ? m : rosterNums().filter(n => !groupOf(n, th)); };
 const gid = (th, g) => `g_${th}_${g}`;
 const bookByGroup = (g, th) => Object.entries(S.shelf).find(([,b]) => b.grp != null && +b.grp === +g && themeOf(b) === th);
 const knownName = n => { const f = bookByNum(n, ACTIVE) || bookByNum(n); return (f && f[1].author) || NAMES[n] || ""; };
@@ -717,9 +719,10 @@ async function showShelf(){
         <button class="btn ghost small" id="setNums">번호 설정</button></div>
       </div>
       ${themeRow}
+      ${gs.length && !gs.some(g => g.length) ? `<p class="miss" style="margin:0 0 10px">모둠 번호는 아직 안 정했어요. 정하기 전에는 학생이 모든 번호 중에서 자기 번호를 골라요. 정해지면 '모둠 정하기'에서 넣어 주세요.</p>` : ""}
       ${gs.length ? `<div class="gcards">${gs.map((mem, i) => {
         const g = i + 1, f = bookByGroup(g, vt), b = f && f[1];
-        const names = mem.map(n => `${n}${knownName(n) ? " " + knownName(n) : ""}`).join(", ");
+        const names = mem.length ? mem.map(n => `${n}${knownName(n) ? " " + knownName(n) : ""}`).join(", ") : "번호는 아직 안 정했어요";
         const [cls, st] = !b ? ["none", "아직 책이 없어요"] : b.rev === "ok" ? ["ok", "★ 통과"] : b.done ? ["fin", `✓ ${b.rev === "redo" ? "다시 냄" : "완료"}`]
           : b.rev === "redo" ? ["redo", "더 해 보기"] : ["", `글 ${b.written || 0} / ${b.pages || 0}쪽`];
         return `<div class="gc ${cls}"><div class="gh"><b>${g}모둠</b><span>${st}</span></div><p>${esc(names)}</p>
@@ -886,18 +889,18 @@ function editGroups(th){
   return new Promise(res => {
     const d = $("#grpDlg"), sel = $("#gdN"), nums = rosterNums();
     let gs = groupsOf(th).map(g => g.slice());
-    if (!gs.length) gs = splitNums(nums, Math.min(8, Math.max(2, Math.round(nums.length / 4))));
+    if (!gs.length) gs = Array.from({length:Math.min(8, Math.max(2, Math.round(nums.length / 4)))}, () => []);
     sel.innerHTML = Array.from({length:11}, (_,i) => i + 2).map(n => `<option value="${n}">${n}개</option>`).join("");
     sel.value = String(gs.length);
     const parse = v => v.split(/[^0-9]+/).filter(Boolean).map(Number);
     const read = () => [...document.querySelectorAll("#gdRows input")].map(i => parse(i.value));
     const left = () => {
       const used = read().flat(), miss = nums.filter(n => !used.includes(n));
-      $("#gdLeft").textContent = miss.length ? `아직 모둠이 없는 번호: ${miss.join(", ")}` : "모든 번호가 모둠에 들어갔어요.";
+      $("#gdLeft").textContent = !used.length ? "아직 번호를 정하지 않았어요. 모둠 수만 저장할 수 있어요." : miss.length ? `아직 모둠이 없는 번호: ${miss.join(", ")}` : "모든 번호가 모둠에 들어갔어요.";
       $("#gdErr").textContent = "";
     };
     const draw = () => {
-      $("#gdRows").innerHTML = gs.map((g,i) => `<label class="gdr"><b>${i+1}모둠</b><input type="text" value="${g.join(", ")}" autocomplete="off"></label>`).join("");
+      $("#gdRows").innerHTML = gs.map((g,i) => `<label class="gdr"><b>${i+1}모둠</b><input type="text" value="${g.join(", ")}" autocomplete="off" placeholder="나중에 정해도 돼요"></label>`).join("");
       document.querySelectorAll("#gdRows input").forEach(i => i.oninput = left); left();
     };
     sel.onchange = () => { gs = read(); const k = +sel.value; while (gs.length < k) gs.push([]); gs = gs.slice(0, k); draw(); };
@@ -910,7 +913,6 @@ function editGroups(th){
       const dup = [...new Set(all.filter((n,i) => all.indexOf(n) !== i))], bad = [...new Set(all.filter(n => !nums.includes(n)))];
       if (dup.length){ err.textContent = `${dup.join(", ")}번이 두 모둠에 들어 있어요.`; return; }
       if (bad.length){ err.textContent = `${bad.join(", ")}번은 우리 반 번호에 없어요. (번호 설정을 확인하세요)`; return; }
-      if (g2.some(g => !g.length)){ err.textContent = "빈 모둠이 있어요. 번호를 넣거나 모둠 수를 줄여 주세요."; return; }
       const themes = THEMES.map(t => t.id === th ? { ...t, groups:g2 } : t);
       err.textContent = "저장하고 있어요…";
       try { await saveSettings({ themes, active:ACTIVE }); THEMES = themes; toast("모둠을 저장했어요"); done(true); }
@@ -983,8 +985,10 @@ function lgGrpRender(){
   const th = lgTheme(), gs = groupsOf(th), who = $("#lgWho");
   $("#lgGrp").innerHTML = gs.length ? gs.map((_,i) => `<button type="button" data-g="${i+1}" aria-pressed="${LG.g === i+1}">${i+1}모둠</button>`).join("")
     : `<p style="margin:0;color:var(--ink-soft);font-size:15px">선생님이 아직 모둠을 정하지 않았어요.</p>`;
-  const mem = LG.g ? (gs[LG.g-1] || []) : [];
+  const mem = LG.g ? membersOf(LG.g, th) : [];
+  const open = LG.g && !(gs[LG.g-1] || []).length;
   $("#lgMemF").style.display = LG.g ? "" : "none";
+  $("#lgMemF span").textContent = open ? "내 번호 (모둠 번호를 아직 안 정해서 모두 보여요)" : "내 번호";
   $("#lgMem").innerHTML = mem.map(n => `<button type="button" data-m="${n}" aria-pressed="${LG.m === +n}">${n}번${knownName(n) ? " " + esc(knownName(n)) : ""}</button>`).join("");
   document.querySelectorAll("#lgGrp [data-g]").forEach(x => x.onclick = () => { LG = { g:+x.dataset.g, m:0 }; lgGrpRender(); });
   document.querySelectorAll("#lgMem [data-m]").forEach(x => x.onclick = () => { LG.m = +x.dataset.m; lgGrpRender(); });
@@ -1560,7 +1564,7 @@ async function openReader(id){
   <div class="bar"><div class="in">
     <button class="btn ghost small" id="back">← 책장</button>
     <h2>${S.isExample ? "예시 · " : ""}${esc(b.title)}</h2>
-    ${S.teacher ? `<span class="status">${b.grp != null ? `${esc(b.author)} · ${(groupsOf(themeOf(b))[b.grp-1] || []).join(", ")}번` : `${b.num ? b.num + "번 · " : ""}비밀번호 ${esc(b.pin)}`} · <span id="tSt">${revText(b)}</span></span>
+    ${S.teacher ? `<span class="status">${b.grp != null ? `${esc(b.author)}${(groupsOf(themeOf(b))[b.grp-1] || []).length ? ` · ${groupsOf(themeOf(b))[b.grp-1].join(", ")}번` : ""}` : `${b.num ? b.num + "번 · " : ""}비밀번호 ${esc(b.pin)}`} · <span id="tSt">${revText(b)}</span></span>
       ${S.isExample ? "" : `<button class="btn pass small" id="tRev">선생님 확인</button>`}
       ${b.grp != null ? "" : `<button class="btn ghost small" id="tNum">번호 바꾸기</button>`}
       <button class="btn small" id="tEdit">고치기</button>

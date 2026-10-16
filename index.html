@@ -716,6 +716,7 @@ async function showShelf(){
         <div class="row"><button class="btn sun small" id="allPdf">전체 PDF 받기</button>
         <button class="btn ghost small" id="exBook">${ex ? "예시 책 고치기" : "예시 책 만들기"}</button>
         <button class="btn ghost small" id="setGrp">모둠 정하기</button>
+        ${gs.length && gStat.length < gs.length ? `<button class="btn small" id="makeAll">모둠 책 한꺼번에 만들기</button>` : ""}
         <button class="btn ghost small" id="setNums">번호 설정</button></div>
       </div>
       ${themeRow}
@@ -840,6 +841,7 @@ async function showShelf(){
     if (!await ask({ title:"모둠 책장으로 바꾸기", text:`'${themeName(vt)}' 책장을 모둠 책장으로 바꿀까요?\n모둠끼리 한 권씩 함께 만들고, 비밀번호 없이 들어가요.`, ok:"바꾸기" })) return;
     if (await editGroups(vt)) showShelf();
   };
+  if ($("#makeAll")) $("#makeAll").onclick = () => makeAllGroupBooks(vt);
   if ($("#setGrp")) $("#setGrp").onclick = async () => { if (await editGroups(vt)) showShelf(); };
   document.querySelectorAll("[data-gmake]").forEach(x => x.onclick = () => makeGroupBook(vt, +x.dataset.gmake));
   document.querySelectorAll("[data-gedit]").forEach(x => x.onclick = async () => {
@@ -921,39 +923,75 @@ function editGroups(th){
     draw(); openDlg(d);
   });
 }
-// 선생님이 모둠 책을 만들어요. 다른 모둠 책이 있으면 내용을 그대로 복사해서 시작할 수도 있어요.
+// 선생님 예시 책 찾기: 이 책장 것이 먼저, 없으면 가장 최근에 고친 예시 책
+function findExample(th){
+  const all = Object.entries(S.shelf).filter(([,b]) => isExample(b));
+  return all.find(([,b]) => themeOf(b) === th) || all.sort((a,b) => (b[1].updated||0) - (a[1].updated||0))[0] || null;
+}
+// 복사할 책의 글·그림을 한 번만 불러와 둬요
+async function loadSource(src){
+  if (!src) return null;
+  const sb = normalize(await api("GET", `books/${src}`) || {}), si = await api("GET", `imgs/${src}`) || {};
+  return { sb, si, thumb:(S.shelf[src] || {}).thumb || null };
+}
+// 모둠 책 한 권 만들기 (src가 있으면 그 내용을 그대로 복사)
+async function buildGroupBook(th, g, src){
+  const id = gid(th, g), now = Date.now(), pid = uid();
+  const book = { grp:g, theme:th, author:`${g}모둠`, title:`${g}모둠의 이야기`, order:[pid], pg:{ [pid]:{ text:"", layout:"side", hasImg:false } }, created:now, updated:now };
+  const imgs = {};
+  if (src && src.sb.pages.length){
+    const { sb, si } = src, map = {};
+    if (sb.title && sb.title !== "선생님 예시 책") book.title = sb.title;   // 예시 책 기본 제목이면 'N모둠의 이야기'로 둬요
+    book.order = []; book.pg = {};
+    sb.pages.forEach(p => { const n = uid(); map[p.pid] = n; book.order.push(n);
+      book.pg[n] = { text:p.text, layout:p.layout, hasImg:!!si[p.pid], by:"선생님", at:now, eds:["선생님"] }; });
+    for (const k in si){ const nk = k === "cover" ? "cover" : map[k]; if (nk) imgs[nk] = si[k]; }
+  }
+  await api("PUT", `books/${id}`, book);
+  for (const k in imgs) await api("PUT", `imgs/${id}/${k}`, imgs[k]);
+  const sh = { title:book.title, author:book.author, grp:g, theme:th, pages:book.order.length,
+    written:book.order.filter(k => book.pg[k].text.trim()).length, updated:now };
+  if (src && src.thumb) sh.thumb = src.thumb;
+  await api("PUT", `shelf/${id}`, sh);
+  S.shelf[id] = sh;
+  return [id, book];
+}
+// 선생님이 모둠 책 한 권을 만들어요. 예시 책이나 다른 모둠 책을 복사해서 시작할 수도 있어요.
 async function makeGroupBook(th, g){
   const id = gid(th, g);
   try {
     const old = await api("GET", `books/${id}`);
     if (old){ openEditor(id, old); return; }
-    const others = Object.entries(S.shelf).filter(([,b]) => b.grp != null && themeOf(b) === th).sort((a,b) => a[1].grp - b[1].grp);
+    const ex = findExample(th);
+    const other = Object.entries(S.shelf).filter(([,b]) => b.grp != null && themeOf(b) === th).sort((a,b) => a[1].grp - b[1].grp)[0];
     let src = null;
-    if (others.length){
-      const o = others[0];
-      if (await ask({ title:`${g}모둠 책 만들기`, text:`${o[1].grp}모둠 책의 글·그림·쪽 모양을 그대로 복사해서 시작할까요?\n'빈 책으로'를 누르면 1쪽짜리 빈 책이 만들어져요.`, ok:`${o[1].grp}모둠 책 복사`, cancel:"빈 책으로" })) src = o[0];
-    }
+    if (ex && await ask({ title:`${g}모둠 책 만들기`, text:`선생님 예시 책 '${ex[1].title || "예시 책"}'의 글·그림·쪽 모양을 그대로 복사해서 시작할까요?`, ok:"예시 책 복사", cancel:other ? "다른 방법" : "빈 책으로" })) src = ex[0];
+    else if (other && await ask({ title:`${g}모둠 책 만들기`, text:`${other[1].grp}모둠 책의 글·그림·쪽 모양을 그대로 복사해서 시작할까요?\n'빈 책으로'를 누르면 1쪽짜리 빈 책이 만들어져요.`, ok:`${other[1].grp}모둠 책 복사`, cancel:"빈 책으로" })) src = other[0];
     toast("모둠 책을 만들고 있어요…");
-    const now = Date.now(), pid = uid();
-    const book = { grp:g, theme:th, author:`${g}모둠`, title:`${g}모둠의 이야기`, order:[pid], pg:{ [pid]:{ text:"", layout:"side", hasImg:false } }, created:now, updated:now };
-    const imgs = {}; let thumb = null;
-    if (src){
-      const sb = normalize(await api("GET", `books/${src}`) || {}), si = await api("GET", `imgs/${src}`) || {}, map = {};
-      book.title = sb.title || book.title; book.order = []; book.pg = {};
-      sb.pages.forEach(p => { const n = uid(); map[p.pid] = n; book.order.push(n);
-        book.pg[n] = { text:p.text, layout:p.layout, hasImg:!!si[p.pid], by:"선생님", at:now, eds:["선생님"] }; });
-      if (!book.order.length){ book.order = [pid]; book.pg = { [pid]:{ text:"", layout:"side", hasImg:false } }; }
-      for (const k in si){ const nk = k === "cover" ? "cover" : map[k]; if (nk) imgs[nk] = si[k]; }
-      thumb = (S.shelf[src] || {}).thumb || null;
-    }
-    await api("PUT", `books/${id}`, book);
-    for (const k in imgs) await api("PUT", `imgs/${id}/${k}`, imgs[k]);
-    const sh = { title:book.title, author:book.author, grp:g, theme:th, pages:book.order.length,
-      written:book.order.filter(k => book.pg[k].text.trim()).length, updated:now };
-    if (thumb) sh.thumb = thumb;
-    await api("PUT", `shelf/${id}`, sh);
-    openEditor(id, book);
+    const [nid, book] = await buildGroupBook(th, g, await loadSource(src));
+    openEditor(nid, book);
   } catch(e){ console.error(e); toast("만들지 못했어요. 다시 해 보세요"); }
+}
+// 아직 책이 없는 모둠 책을 예시 책 내용으로 한꺼번에 만들어요
+async function makeAllGroupBooks(th){
+  const gs = groupsOf(th), missing = gs.map((_,i) => i + 1).filter(g => !bookByGroup(g, th));
+  if (!missing.length){ toast("모든 모둠에 이미 책이 있어요"); return; }
+  const ex = findExample(th);
+  const yes = await ask({ title:"모둠 책 한꺼번에 만들기",
+    text: ex ? `선생님 예시 책 '${ex[1].title || "예시 책"}'을(를) 복사해서\n${missing.join(", ")}모둠 책을 한꺼번에 만들까요?\n\n이미 책이 있는 모둠은 그대로 둬요.\n만든 뒤에 모둠마다 따로 고칠 수 있어요.`
+             : `아직 선생님 예시 책이 없어요.\n${missing.join(", ")}모둠 책을 빈 책으로 만들까요?\n\n(예시 책을 먼저 만들면 그 내용으로 복사할 수 있어요)`,
+    ok: ex ? "예시 책으로 만들기" : "빈 책으로 만들기" });
+  if (!yes) return;
+  try {
+    toast("예시 책을 불러오고 있어요…");
+    const src = await loadSource(ex && ex[0]);
+    for (let i = 0; i < missing.length; i++){
+      toast(`모둠 책 만드는 중… ${i + 1} / ${missing.length}`);
+      await buildGroupBook(th, missing[i], src);
+    }
+    toast(`모둠 책 ${missing.length}권을 만들었어요`);
+  } catch(e){ console.error(e); toast("만들다가 멈췄어요. 다시 누르면 남은 모둠만 만들어요"); }
+  showShelf();
 }
 
 /* ---------- 로그인 ---------- */

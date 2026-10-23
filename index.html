@@ -581,6 +581,13 @@ const bookByGroup = (g, th) => Object.entries(S.shelf).find(([,b]) => b.grp != n
 const knownName = n => { const f = bookByNum(n, ACTIVE) || bookByNum(n); return (f && f[1].author) || NAMES[n] || ""; };
 const sortKey = b => b.grp != null ? +b.grp : b.num ? +b.num : 999;
 const crew = b => [...new Set(b.pages.flatMap(p => p.eds || []))].filter(x => x !== "선생님").sort((a,c) => parseInt(a) - parseInt(c));
+// 표지 제목을 아직 안 바꿨나요? (비었거나, 처음 들어 있던 제목 그대로)
+function titleUnset(b){
+  if (!b || isExample(b)) return false;
+  const t = (b.title || "").trim(), ex = b.grp != null && findExample(themeOf(b));
+  return !t || t === b.tplTitle || t === `${b.author}의 이야기` || t === "선생님 예시 책"
+    || (b.grp != null && t === `${b.grp}모둠의 이야기`) || (ex && t === (ex[1].title || "").trim());
+}
 const isExample = b => b && b.num != null && b.num !== "" && +b.num === 0;   // 0번 = 선생님 예시 책
 
 /* ---------- 도우미 ---------- */
@@ -650,6 +657,7 @@ function coverHTML(b, id, img){
 }
 function coverImg(){
   if (S.imgs.cover) return S.imgs.cover;
+  if (S.book.grp != null) return null;   // 모둠 책은 표지를 비워 두고 직접 꾸며요
   const p = S.book.pages.find(p => S.imgs[p.pid]);
   return p ? S.imgs[p.pid] : null;
 }
@@ -937,21 +945,20 @@ async function loadSource(src){
 // 모둠 책 한 권 만들기 (src가 있으면 그 내용을 그대로 복사)
 async function buildGroupBook(th, g, src){
   const id = gid(th, g), now = Date.now(), pid = uid();
-  const book = { grp:g, theme:th, author:`${g}모둠`, title:`${g}모둠의 이야기`, order:[pid], pg:{ [pid]:{ text:"", layout:"side", hasImg:false } }, created:now, updated:now };
+  const book = { grp:g, theme:th, author:`${g}모둠`, title:"", order:[pid], pg:{ [pid]:{ text:"", layout:"side", hasImg:false } }, created:now, updated:now };
   const imgs = {};
   if (src && src.sb.pages.length){
     const { sb, si } = src, map = {};
-    if (sb.title && sb.title !== "선생님 예시 책") book.title = sb.title;   // 예시 책 기본 제목이면 'N모둠의 이야기'로 둬요
+    if (sb.title) book.tplTitle = sb.title;   // 복사한 제목 그대로 내면 '안 바꿨다'고 알려 줘요
     book.order = []; book.pg = {};
     sb.pages.forEach(p => { const n = uid(); map[p.pid] = n; book.order.push(n);
       book.pg[n] = { text:p.text, layout:p.layout, hasImg:!!si[p.pid], by:"선생님", at:now, eds:["선생님"] }; });
-    for (const k in si){ const nk = k === "cover" ? "cover" : map[k]; if (nk) imgs[nk] = si[k]; }
+    for (const k in si){ const nk = map[k]; if (nk) imgs[nk] = si[k]; }   // 표지 그림은 복사하지 않아요
   }
   await api("PUT", `books/${id}`, book);
   for (const k in imgs) await api("PUT", `imgs/${id}/${k}`, imgs[k]);
   const sh = { title:book.title, author:book.author, grp:g, theme:th, pages:book.order.length,
     written:book.order.filter(k => book.pg[k].text.trim()).length, updated:now };
-  if (src && src.thumb) sh.thumb = src.thumb;
   await api("PUT", `shelf/${id}`, sh);
   S.shelf[id] = sh;
   return [id, book];
@@ -1189,6 +1196,7 @@ function renderEditor(){
   </div></div>
   <div style="height:14px"></div>
   ${noteHTML(b)}
+  <div id="ttlNote"></div>
   <div class="tabs" role="tablist">
     ${[["pages","쪽 쓰기"],["cover","표지"]].map(([k,l]) =>
       `<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}</button>`).join("")}
@@ -1200,7 +1208,20 @@ function renderEditor(){
   document.querySelectorAll(".tab").forEach(t => t.onclick = () => { S.tab = t.dataset.tab; renderEditor(); });
   S.barSig = barSig();
   ({ pages:renderPages, cover:renderCover })[S.tab]();
+  updTtlNote();
 }
+function updTtlNote(){
+  const el = $("#ttlNote"); if (!el || !S.book) return;
+  const need = titleUnset(S.book);
+  const tab = document.querySelector('.tab[data-tab="cover"]');
+  if (tab) tab.innerHTML = need ? '표지 <span style="color:var(--coral)">●</span>' : "표지";
+  el.innerHTML = !need ? "" : S.tab === "cover"
+    ? `<div class="note redo"><b>📕 우리 책 제목을 지어 주세요</b><p>아래 '책 제목' 칸에 우리 이야기에 어울리는 제목을 새로 써요.</p></div>`
+    : `<div class="note redo"><b>📕 아직 표지 제목을 안 바꿨어요</b><p>이야기에 어울리는 제목을 지어야 '다 만들었어요'를 누를 수 있어요.</p>
+       <div class="row" style="margin-top:8px"><button class="btn sun small" id="goCover">표지 고치러 가기</button></div></div>`;
+  if ($("#goCover")) $("#goCover").onclick = goCover;
+}
+function goCover(){ S.tab = "cover"; renderEditor(); setTimeout(() => { const t = $("#ttl"); if (t){ t.focus(); t.select(); } }, 50); }
 
 /* ---------- 선생님 확인 ---------- */
 function noteHTML(b){
@@ -1273,6 +1294,10 @@ async function toggleDone(){
     if (!await ask({ title:"완료 취소", text:"완료 표시를 지울까요?\n더 고치고 싶을 때 눌러요. 다 고치면 다시 '다 만들었어요'를 눌러 주세요.", ok:"완료 취소" })) return;
     await setDone(false); toast("완료를 취소했어요. 마저 고쳐 보세요"); return;
   }
+  if (titleUnset(b)){
+    if (await ask({ title:"표지 제목을 지어 주세요", text:`${b.title.trim() ? `지금 제목 '${b.title.trim()}'은(는) 처음 들어 있던 제목이에요.` : "아직 책 제목이 비어 있어요."}\n'표지'에서 우리 이야기에 어울리는 제목을 지어야 완료할 수 있어요.`, ok:"표지 고치러 가기", cancel:"닫기" })) goCover();
+    return;
+  }
   // 빠뜨린 곳이 있는지 살펴보고 알려 줘요 (그래도 완료는 할 수 있어요)
   const noText = [], noImg = [];
   b.pages.forEach((p,i) => {
@@ -1281,6 +1306,7 @@ async function toggleDone(){
   });
   const miss = [];
   if (!b.title.trim()) miss.push("· 책 제목이 비어 있어요");
+  if (b.grp != null && !S.imgs.cover) miss.push("· 표지 그림이 없어요");
   if (noText.length) miss.push(`· 글이 없는 쪽: ${noText.join(", ")}쪽`);
   if (noImg.length) miss.push(`· 그림이 없는 쪽: ${noImg.join(", ")}쪽`);
   const text = miss.length
@@ -1419,9 +1445,9 @@ function renderCover(){
   $("#panel").innerHTML = `
     <div class="edit">
       <div>
-        <label class="field"><span>책 제목</span><input type="text" id="ttl" value="${esc(b.title)}" maxlength="40"></label>
+        <label class="field"><span>책 제목</span><input type="text" id="ttl" value="${esc(b.title)}" maxlength="40" placeholder="우리 책 제목을 지어 주세요"></label>
         <div class="field"><span>표지 그림</span>
-          <p style="margin:0 0 8px;font-size:15px;color:var(--ink-soft)">표지 그림이 없으면 첫 그림이 표지가 돼요.</p>
+          <p style="margin:0 0 8px;font-size:15px;color:var(--ink-soft)">${b.grp != null ? "표지는 비어 있어요. 우리 모둠이 직접 표지 그림을 넣어 주세요." : "표지 그림이 없으면 첫 그림이 표지가 돼요."}</p>
           <div class="row">
             <button class="btn sun small" id="cvPick">${S.imgs.cover ? "표지 바꾸기" : "표지 그림 넣기"}</button>
             <input class="pick" type="file" id="cvFile" accept="image/*" tabindex="-1">
@@ -1431,7 +1457,7 @@ function renderCover(){
       <div><div class="field"><span>미리보기</span><div class="mini" id="cvPrev">${coverHTML(b, S.id, coverImg())}</div></div></div>
     </div>`;
   S.lastSig = S.grp ? liveSig() : "";
-  $("#ttl").oninput = e => { b.title = e.target.value; changed(null, "title"); $("#cvPrev").innerHTML = coverHTML(b, S.id, coverImg()); document.querySelector(".bar h2").textContent = b.title || "제목 없는 책"; };
+  $("#ttl").oninput = e => { b.title = e.target.value; changed(null, "title"); $("#cvPrev").innerHTML = coverHTML(b, S.id, coverImg()); document.querySelector(".bar h2").textContent = b.title || "제목 없는 책"; updTtlNote(); };
   $("#cvPick").onclick = () => { $("#cvFile").value = ""; $("#cvFile").click(); };
   $("#cvFile").onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
@@ -1503,7 +1529,7 @@ async function drawSlide(book, id, imgs, i){
   if (i === 0){
     x.fillStyle = colorOf(id); x.fillRect(0,0,PW,PH);
     const first = book.pages.find(p => imgs[p.pid]);
-    const im = await img(imgs.cover || (first && imgs[first.pid]));
+    const im = await img(imgs.cover || (book.grp == null && first && imgs[first.pid]));
     if (im) drawImg(x, im, 6*U, 6*U, PW-12*U, PH-32*U, false, 1.2*U);
     const t = fitLines(x, book.title || "제목 없는 책", PW-19.2*U, 5.4*U*1.2*2, 5.4*U, 1.2, F_DISP);
     const boxH = 5.2*U + t.h + 4.2*U, boxY = PH - 6*U - boxH;
@@ -1514,7 +1540,7 @@ async function drawSlide(book, id, imgs, i){
   } else if (i === n+1){
     x.fillStyle = ink; x.textAlign = "center"; x.textBaseline = "middle";
     x.font = `${9*U}px ${F_DISP}`; x.fillText("끝", PW/2, PH/2 - 3*U);
-    x.fillStyle = soft; x.font = `${3*U}px ${F_BODY}`; x.fillText(`${book.title} · 지은이 ${book.author}`, PW/2, PH/2 + 6*U);
+    x.fillStyle = soft; x.font = `${3*U}px ${F_BODY}`; x.fillText(`${book.title || "제목 없는 책"} · 지은이 ${book.author}`, PW/2, PH/2 + 6*U);
     if (book.grp != null && crew(book).length){ x.font = `${2.4*U}px ${F_BODY}`; x.fillText(`함께 만든 친구: ${crew(book).join(", ")}`, PW/2, PH/2 + 11*U); }
     x.textAlign = "left";
   } else {
@@ -1601,7 +1627,7 @@ async function openReader(id){
   $("#app").innerHTML = `
   <div class="bar"><div class="in">
     <button class="btn ghost small" id="back">← 책장</button>
-    <h2>${S.isExample ? "예시 · " : ""}${esc(b.title)}</h2>
+    <h2>${S.isExample ? "예시 · " : ""}${esc(b.title || "제목 없는 책")}</h2>
     ${S.teacher ? `<span class="status">${b.grp != null ? `${esc(b.author)}${(groupsOf(themeOf(b))[b.grp-1] || []).length ? ` · ${groupsOf(themeOf(b))[b.grp-1].join(", ")}번` : ""}` : `${b.num ? b.num + "번 · " : ""}비밀번호 ${esc(b.pin)}`} · <span id="tSt">${revText(b)}</span></span>
       ${S.isExample ? "" : `<button class="btn pass small" id="tRev">선생님 확인</button>`}
       ${b.grp != null ? "" : `<button class="btn ghost small" id="tNum">번호 바꾸기</button>`}
@@ -1708,7 +1734,7 @@ function slideCount(){ return S.book.pages.length + 2; }
 function slideHTML(i){
   const b = S.book, n = b.pages.length;
   if (i === 0) return coverHTML(b, S.id, coverImg());
-  if (i === n+1) return `<div class="pg end"><div><b>끝</b><br><span>${esc(b.title)} · 지은이 ${esc(b.author)}</span>${b.grp != null && crew(b).length ? `<br><span>함께 만든 친구: ${crew(b).map(esc).join(", ")}</span>` : ""}</div></div>`;
+  if (i === n+1) return `<div class="pg end"><div><b>끝</b><br><span>${esc(b.title || "제목 없는 책")} · 지은이 ${esc(b.author)}</span>${b.grp != null && crew(b).length ? `<br><span>함께 만든 친구: ${crew(b).map(esc).join(", ")}</span>` : ""}</div></div>`;
   const p = b.pages[i-1]; return pageHTML(p, S.imgs[p.pid], i, false);
 }
 function showSlide(i){
